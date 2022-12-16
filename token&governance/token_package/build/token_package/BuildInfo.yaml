@@ -1,14 +1,14 @@
 ---
 compiled_package_info:
-  package_name: crowd9_sc
+  package_name: token_package
   address_alias_instantiation:
-    crowd9_sc: "0000000000000000000000000000000000000000"
     std: "0000000000000000000000000000000000000001"
     sui: "0000000000000000000000000000000000000002"
-  source_digest: 1B3764D24EB10EC2ECCF1249C8ED364E923617DD4BE7D75BA2D56D3981564AF2
+    token_package: "0000000000000000000000000000000000000000"
+  source_digest: 161A51E29FD7594CBF8108A5C298EB8D6F19641B9460336200EC0946EF500AF8
   build_flags:
-    dev_mode: false
-    test_mode: false
+    dev_mode: true
+    test_mode: true
     generate_docs: false
     generate_abis: false
     install_dir: ~
