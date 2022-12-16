@@ -6,7 +6,6 @@ module crowd9_sc::my_module {
     struct Card has key, store{
         id: UID,
     }
-
     public entry fun mint_card(ctx: &mut TxContext){
         let nft = Card { id: object::new(ctx)};
         transfer::transfer(nft, tx_context::sender(ctx));
