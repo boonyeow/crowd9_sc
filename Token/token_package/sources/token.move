@@ -89,13 +89,13 @@ module token_package::token {
     }
 
     // start campaign
-    fun start_campaign(collection: &mut NftCollection, _capability: Capability) { 
-        assert!(collection.capability == object::id(&_capability), 0); // permission check
-        assert!(collection.status == b"Inactive", 1); // status check
-        // collection.start_timestamp = datetime.now();
-    }
+    // fun start_campaign<T1>(collection: &mut NftCollection<T1>, _capability: Capability) { 
+        // assert!(collection.capability == object::id(&_capability), 0); // permission check
+        // assert!(collection.status == b"Inactive", 1); // status check
+     // collection.start_timestamp = datetime.now();
+    // }
 
-     #[test]
+    #[test]
     public fun test_campaign() {
         // use sui::tx_context;
         // use sui::transfer;
@@ -103,31 +103,38 @@ module token_package::token {
 
         // create test addresses representing users
         let admin = @0xBABE;
+        let creator = @0xCAFE;
+
         // first transaction to emulate module initialization
         let scenario_val = test_scenario::begin(admin);
         let scenario = &mut scenario_val;
         {
             init(test_scenario::ctx(scenario));
         };
+
         // second transaction
-        test_scenario::next_tx(scenario, admin);
-        {
+        test_scenario::next_tx(scenario, creator);
+        let campaign_id = {
+            let ctx = test_scenario::ctx(scenario);
             create_campaign(
             b"The One",
             b"Description",
             1000,
             10,
-            test_scenario::ctx(scenario),
+            ctx,
             20,
             );
+            object::id_from_address(tx_context::last_created_object_id(ctx))
+            // debug::print(&tx_context::last_created_object_id(ctx));
         };
         // third transaction
-        // test_scenario::next_tx(scenario, admin); 
-        // {
-        //     start
-        // }
+        test_scenario::next_tx(scenario, creator); 
+        let camapign_obj:NftCollection<vector<u8>> = test_scenario::take_shared_by_id(scenario, campaign_id);
+        debug::print(&camapign_obj);
+        assert!(camapign_obj.name == b"The One" && camapign_obj.funding_goal == 1000 && camapign_obj.price == 10 && camapign_obj.duration == 20, 1);
 
 
+        test_scenario::return_shared(camapign_obj);
         test_scenario::end(scenario_val);
     }
 
