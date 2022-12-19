@@ -1,0 +1,22 @@
+---
+compiled_package_info:
+  package_name: token_package
+  address_alias_instantiation:
+    std: "0000000000000000000000000000000000000001"
+    sui: "0000000000000000000000000000000000000002"
+    token_package: "0000000000000000000000000000000000000000"
+  source_digest: 88676984F41D74334F458B7B5665F8CA1110A4DD09B5686629453E1E6545F2CC
+  build_flags:
+    dev_mode: false
+    test_mode: false
+    generate_docs: false
+    generate_abis: false
+    install_dir: ~
+    force_recompilation: false
+    additional_named_addresses: {}
+    architecture: ~
+    fetch_deps_only: false
+    skip_fetch_latest_git_deps: false
+dependencies:
+  - MoveStdlib
+  - Sui
