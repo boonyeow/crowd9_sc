@@ -15,10 +15,10 @@ module token_package::token {
         value: u64,
     }
 
-    struct Collection has key{
+    struct NftCollection<T1> has key{
         id: UID, //collection id, with ID within UID to represent capability
         name: vector<u8>, //str
-        description: vector<u64>, // str
+        description: vector<T1>, // str
         current_supply: u32,
         funding_goal: u32,
         creator: address, //msg.sender -> whoever first called to create
@@ -57,20 +57,21 @@ module token_package::token {
 
 
     // create campaign
-    fun create_campaign(
+    fun create_campaign<T1: store>( 
         _name: vector<u8>,
-        _description: vector<u64>,
+        _description: T1,
         _funding_goal: u32,
         _price: u32,
         ctx: &mut TxContext,
-        _start_timestamp: u32,
         _duration: u32,
-    ){ //sort of like deploying a new contract
+    ){  
         let owner_cap = Capability{id: object::new(ctx)};
-        let collection = Collection{
-            id:  object::new(ctx), //collection id
+        let desc = vector::empty<T1>();
+        vector::push_back(&mut desc, _description);
+        let collection = NftCollection{
+            id:  object::new(ctx), //collection uid
             name:_name, //str
-            description: _description, // str
+            description: desc, // str
             current_supply: 0,
             funding_goal:_funding_goal,
             creator:  tx_context::sender(ctx), //msg.sender -> whoever first called to create
@@ -78,8 +79,7 @@ module token_package::token {
             price: _price,
             capability: object::id(&owner_cap),
             status: b"Inactive",
-            // capability: object::new(ctx),
-            start_timestamp: _start_timestamp,
+            start_timestamp: 0000000000,
             duration: _duration,
             owners: vector::empty<Owner>()
             };
@@ -89,12 +89,18 @@ module token_package::token {
         transfer::transfer(owner_cap, tx_context::sender(ctx));
     }
 
+    // // start campaign
+    // fun start_campaign(collection: &mut NftCollection, _capability: Capability){ 
+    //     // assert!(collection.capability == _capability.id, 0); // permission check
+    //     assert!(collection.status == b"Inactive", 1); // status check
+    //     // collection.start_timestamp = datetime.now();
+    // }
+
      #[test]
     public fun test_campaign() {
         // use sui::tx_context;
         // use sui::transfer;
         use sui::test_scenario;
-        use std::vector;
 
         // create test addresses representing users
         let admin = @0xBABE;
@@ -104,22 +110,28 @@ module token_package::token {
         {
             init(test_scenario::ctx(scenario));
         };
-        // second transaction executed by admin to create the sword
+        // second transaction
         test_scenario::next_tx(scenario, admin);
         {
             create_campaign(
             b"The One",
-            vector::empty<u64>(),
+            b"Description",
             1000,
             10,
             test_scenario::ctx(scenario),
             20,
-            20,
             );
         };
+        // third transaction
+        // test_scenario::next_tx(scenario, admin); 
+        // {
+        //     start
+        // }
+
 
         test_scenario::end(scenario_val);
     }
+
 
     // public entry fun mint_card(ctx: &mut TxContext){
     //     let nft = TokenObj { id: object::new(ctx)};
