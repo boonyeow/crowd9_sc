@@ -5,10 +5,10 @@ compiled_package_info:
     std: "0000000000000000000000000000000000000001"
     sui: "0000000000000000000000000000000000000002"
     token_package: "0000000000000000000000000000000000000000"
-  source_digest: 88676984F41D74334F458B7B5665F8CA1110A4DD09B5686629453E1E6545F2CC
+  source_digest: 9955A48FACD77101AF0E5A4D779A1265809CBA93A20C0AED29FE71C85DEF8FE4
   build_flags:
-    dev_mode: false
-    test_mode: false
+    dev_mode: true
+    test_mode: true
     generate_docs: false
     generate_abis: false
     install_dir: ~
