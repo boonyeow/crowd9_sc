@@ -2,7 +2,6 @@ module token_package::token {
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use std::vector;
-    // use sui::coin::{Self, Coin};
     use sui::object::{Self, UID, ID};
     use sui::balance::{Self, Balance};
     use sui::sui::SUI;
@@ -25,6 +24,7 @@ module token_package::token {
         creator: address, //msg.sender -> whoever first called to create
         balance: Balance<SUI>,
         price: u32,
+        capability: ID,
         status: vector<u8>,
         start_timestamp: u32,
         duration: u32,
@@ -42,9 +42,8 @@ module token_package::token {
         quantity: u32,
     }
 
-    struct Capability has key, store {
+    struct Capability has key {
         id: UID,
-        collection_id: ID,
     }
 
     struct AdminCap has key {
@@ -67,6 +66,7 @@ module token_package::token {
         _start_timestamp: u32,
         _duration: u32,
     ){ //sort of like deploying a new contract
+        let owner_cap = Capability{id: object::new(ctx)};
         let collection = Collection{
             id:  object::new(ctx), //collection id
             name:_name, //str
@@ -76,20 +76,16 @@ module token_package::token {
             creator:  tx_context::sender(ctx), //msg.sender -> whoever first called to create
             balance: balance::zero<SUI>(),
             price: _price,
+            capability: object::id(&owner_cap),
             status: b"Inactive",
-            // capability: object::new(ctx),
             start_timestamp: _start_timestamp,
             duration: _duration,
             owners: vector::empty<Owner>()
             };
-        debug::print(&collection);
-        let owner_cap = Capability{
-            id: object::new(ctx),
-            collection_id: object::id(&collection),
-        };
-        debug::print(&owner_cap);
-        transfer::transfer(owner_cap, tx_context::sender(ctx));
+        debug::print(&collection.capability);
+        debug::print(&owner_cap.id);
         transfer::share_object(collection);
+        transfer::transfer(owner_cap, tx_context::sender(ctx));
     }
 
      #[test]
