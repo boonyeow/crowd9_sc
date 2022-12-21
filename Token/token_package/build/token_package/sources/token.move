@@ -6,6 +6,7 @@ module token_package::token {
     use sui::balance::{Self, Balance};
     use sui::sui::SUI;
     use std::debug;
+    use sui::event;
 
     //Error Codes
     const EINSUFFICIENT_FUNDS:u64 = 0;
@@ -26,8 +27,8 @@ module token_package::token {
         price: u32,
         capability: ID,
         status: vector<u8>,
-        start_timestamp: u32,
-        duration: u32,
+        start_timestamp: u64,
+        duration: u64,
         owners: vector<Owner>,
     }
     struct Owner has key, store{
@@ -50,6 +51,12 @@ module token_package::token {
         id: UID,
     }
 
+    struct CampaignStartedEvent has copy, drop {
+        collection_id: ID,
+        start_timestamp: u64,
+        end_timestamp: u64,
+    }
+
     // Executes once (same as constructor)
     fun init(ctx: &mut TxContext){
         transfer::transfer(AdminCap{id: object::new(ctx)}, tx_context::sender(ctx));
@@ -62,7 +69,7 @@ module token_package::token {
         _funding_goal: u32,
         _price: u32,
         ctx: &mut TxContext,
-        _duration: u32,
+        _duration: u64,
     ){  
         let owner_cap = Capability{id: object::new(ctx)};
         let desc = vector::empty<T1>();
@@ -88,15 +95,23 @@ module token_package::token {
         transfer::transfer(owner_cap, tx_context::sender(ctx));
     }
 
-    // start campaign
-    // fun start_campaign<T1>(collection: &mut NftCollection<T1>, _capability: Capability) { 
-        // assert!(collection.capability == object::id(&_capability), 0); // permission check
-        // assert!(collection.status == b"Inactive", 1); // status check
-     // collection.start_timestamp = datetime.now();
-    // }
+    fun start_campaign(collection: &mut NftCollection<vector<u8>>, capability: ID ,ctx: &mut TxContext){
+        assert!(tx_context::sender(ctx) == collection.creator, 1);
+        assert!(capability == collection.capability, 1);
+        assert!(collection.status == b"Inactive", 1);
+        collection.status = b"Active";
+        collection.start_timestamp = tx_context::epoch(ctx);
+        event::emit(
+            CampaignStartedEvent{
+                collection_id: object::id(collection),
+                start_timestamp: collection.start_timestamp,
+                end_timestamp: collection.start_timestamp + collection.duration,
+            }
+        );
+    }
 
     #[test]
-    public fun test_campaign() {
+    public fun test_and_edit_campaign() {
         // use sui::tx_context;
         // use sui::transfer;
         use sui::test_scenario;
@@ -131,13 +146,31 @@ module token_package::token {
         test_scenario::next_tx(scenario, creator); 
         let camapign_obj:NftCollection<vector<u8>> = test_scenario::take_shared_by_id(scenario, campaign_id);
         debug::print(&camapign_obj);
-        assert!(camapign_obj.name == b"The One" && camapign_obj.funding_goal == 1000 && camapign_obj.price == 10 && camapign_obj.duration == 20, 1);
+        assert!(camapign_obj.name == b"The One" && camapign_obj.funding_goal == 1000 && camapign_obj.price == 10 && camapign_obj.duration == 20 && camapign_obj.status == b"Inactive", 1);
+
+        // fourth transaction
+        test_scenario::next_tx(scenario, creator);
+        {   
+            let cap = test_scenario::take_from_sender<Capability>(scenario);
+            let cap_id = object::id(&cap);
+            debug::print(&cap_id);
+            let ctx = test_scenario::ctx(scenario);
+            start_campaign(&mut camapign_obj, cap_id, ctx);
+            // debug::print(&camapign_obj);
+            test_scenario::return_to_sender(scenario, cap)
+        };
+        
+        // fifth transaction
+        test_scenario::next_tx(scenario, creator);
+        debug::print(&camapign_obj);
+        assert!(camapign_obj.status == b"Active", 1);
+
 
 
         test_scenario::return_shared(camapign_obj);
         test_scenario::end(scenario_val);
-    }
-
+        }
+   
 
     // public entry fun mint_card(ctx: &mut TxContext){
     //     let nft = TokenObj { id: object::new(ctx)};
