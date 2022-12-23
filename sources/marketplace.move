@@ -19,6 +19,7 @@ module crowd9_sc::marketplace {
     const ENotOwner:u64 = 0; // Error code when user tries to access a restricted / owner-only function
     const EHasExistingOffer:u64 = 1; // Error code when user has already made an offer for a listing
     const EMustNotBeOwner:u64 = 2; // Error code when user tries to make an offer to his/her own listing
+    const EAmountIncorrect:u64 = 3; // Error code when user supply incorrect coin amount to purchase NFT
     const POPTART:u8 = 0; // Used as a constant value to construct Set using Table i.e. Table<ID, POPTART>
 
     // ======= Types =======
@@ -63,6 +64,14 @@ module crowd9_sc::marketplace {
         transfer::share_object(Market<SUI>{ id , listing_ids })
     }
 
+    #[test_only]
+    public fun test_init(ctx: &mut TxContext){
+        // create a shared marketplace that accepts SUI coin
+        let id = object::new(ctx);
+        let listing_ids = vec_set::empty<ID>();
+        transfer::share_object(Market<SUI>{ id , listing_ids })
+    }
+
     public fun list<T: key + store, COIN>(market: &mut Market<COIN>, nft: T, price: u64, ctx: &mut TxContext): ID{
         let id = object::new(ctx);
         let nft_id = object::id(&nft);
@@ -90,10 +99,9 @@ module crowd9_sc::marketplace {
     public entry fun make_offer<T: key + store, COIN>(market:&mut Market<COIN>, nft_id: ID, offered: Coin<SUI>, ctx:&mut TxContext){
         let listing = ofield::borrow_mut<ID, Listing>(&mut market.id, nft_id);
         let offeror = tx_context::sender(ctx);
-
         assert!(listing.owner != offeror, EMustNotBeOwner);
         assert!(!table::contains(&listing.offer_data, offeror), EHasExistingOffer);
-        // another scenario -> supplied coins > price -> to immediate purchase, or disallow 
+        // another scenario -> supplied coins > price -> to immediate purchase, or disallow
 
         emit(OfferEvent<T>{
             nft_id,
@@ -105,9 +113,16 @@ module crowd9_sc::marketplace {
         table::add(&mut listing.offer_data, offeror, coin::into_balance(offered));
     }
 
-    // To do
     // Purchase NFT Function
-    public entry fun buy(){}
+    // public entry fun buy<COIN>(market: &mut Market<COIN>, nft_id: ID, paid: Coin<SUI>, ctx: &mut TxContext){
+    //     let listing = ofield::borrow<ID, Listing>(&mut market.id, nft_id);
+    //     let buyer = tx_context::sender(ctx);
+    //
+    //     assert!(listing.owner != buyer, EMustNotBeOwner);
+    //     assert!(listing.price == coin::value(&paid), EAmountIncorrect);
+    //
+    //
+    // }
 
     // Accept offer function
     public entry fun accept_offer(){}
@@ -116,154 +131,4 @@ module crowd9_sc::marketplace {
 
     // get all listings
 
-
-    // ======= Unit Tests =======
-
-    #[test]
-    fun testing1(){
-        use std::debug::{Self};
-        use sui::test_scenario::{Self};
-        // use sui::coin;
-        use crowd9_sc::my_module;
-        let admin = @0xCAFE;
-        let scenario_val = test_scenario::begin(admin);
-        let scenario = &mut scenario_val;
-
-        // initialize marketplace
-        let marketplace_id = {
-            let ctx = test_scenario::ctx(scenario);
-            init(ctx);
-            object::id_from_address(tx_context::last_created_object_id(ctx))
-        };
-        debug::print(&marketplace_id);
-
-        // create NFT
-        let user1 = @0xAAAA;
-        test_scenario::next_tx(scenario, user1);
-        let nft_id = {
-            let ctx = test_scenario::ctx(scenario);
-            my_module::mint_card(ctx);
-            object::id_from_address(tx_context::last_created_object_id(ctx))
-        };
-
-        // list NFT
-        test_scenario::next_tx(scenario, user1);
-        let marketplace_obj = test_scenario::take_shared<Market<SUI>>(scenario);
-        debug::print(&marketplace_obj);
-
-        let nft_obj: my_module::Card = test_scenario::take_from_address_by_id(scenario, user1, nft_id);
-        debug::print(&nft_obj);
-
-        debug::print(&b"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
-        debug::print(&marketplace_obj);
-        debug::print(&b"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
-
-        debug::print(&b"000000000000000000000000000000000000000000000000000000000000000000000000000000");
-        list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
-
-        let listing_id =  object::id_from_address(tx_context::last_created_object_id(test_scenario::ctx(scenario)));
-        debug::print(&listing_id);
-
-        debug::print(&b"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
-        debug::print(&marketplace_obj);
-        debug::print(&b"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
-
-        let user2 = @0xAAAB;
-        test_scenario::next_tx(scenario, user2);
-
-        let test_coins:Coin<SUI> = coin::mint_for_testing(5, test_scenario::ctx(scenario));
-        make_offer<my_module::Card, SUI>(&mut marketplace_obj, nft_id, test_coins,test_scenario::ctx(scenario));
-
-
-        test_scenario::return_shared(marketplace_obj);
-        test_scenario::end(scenario_val);
-    }
-
-    #[test]
-    #[expected_failure(abort_code =  crowd9_sc::marketplace::EMustNotBeOwner)]
-    fun test_owner_make_offer(){
-        use sui::test_scenario::{Self};
-        use crowd9_sc::my_module;
-        let admin = @0xCAFE;
-        let scenario_val = test_scenario::begin(admin);
-        let scenario = &mut scenario_val;
-
-        // initialize marketplace
-        {
-            let ctx = test_scenario::ctx(scenario);
-            init(ctx);
-            object::id_from_address(tx_context::last_created_object_id(ctx))
-        };
-
-        // create NFT
-        let user1 = @0xAAAA;
-        test_scenario::next_tx(scenario, user1);
-        let nft_id = {
-            let ctx = test_scenario::ctx(scenario);
-            my_module::mint_card(ctx);
-            object::id_from_address(tx_context::last_created_object_id(ctx))
-        };
-
-        // list NFT
-        test_scenario::next_tx(scenario, user1);
-        let marketplace_obj = test_scenario::take_shared<Market<SUI>>(scenario);
-
-        let nft_obj: my_module::Card = test_scenario::take_from_address_by_id(scenario, user1, nft_id);
-
-        list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
-
-        test_scenario::next_tx(scenario, user1);
-
-        let test_coins:Coin<SUI> = coin::mint_for_testing(5, test_scenario::ctx(scenario));
-        make_offer<my_module::Card, SUI>(&mut marketplace_obj, nft_id, test_coins,test_scenario::ctx(scenario));
-
-
-        test_scenario::return_shared(marketplace_obj);
-        test_scenario::end(scenario_val);
-    }
-
-    #[test]
-    #[expected_failure(abort_code =  crowd9_sc::marketplace::EHasExistingOffer)]
-    fun test_has_existing_offer(){
-        use sui::test_scenario;
-        use crowd9_sc::my_module;
-        let admin = @0xCAFE;
-        let scenario_val = test_scenario::begin(admin);
-        let scenario = &mut scenario_val;
-
-        // initialize marketplace
-        {
-            let ctx = test_scenario::ctx(scenario);
-            init(ctx);
-            object::id_from_address(tx_context::last_created_object_id(ctx))
-        };
-
-        // create NFT
-        let user1 = @0xAAAA;
-        test_scenario::next_tx(scenario, user1);
-        let nft_id = {
-            let ctx = test_scenario::ctx(scenario);
-            my_module::mint_card(ctx);
-            object::id_from_address(tx_context::last_created_object_id(ctx))
-        };
-
-        // list NFT
-        test_scenario::next_tx(scenario, user1);
-        let marketplace_obj = test_scenario::take_shared<Market<SUI>>(scenario);
-
-        let nft_obj: my_module::Card = test_scenario::take_from_address_by_id(scenario, user1, nft_id);
-        list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
-        let user2 = @0xAAAB;
-        test_scenario::next_tx(scenario, user2);
-
-        let test_coins:Coin<SUI> = coin::mint_for_testing(5, test_scenario::ctx(scenario));
-        make_offer<my_module::Card, SUI>(&mut marketplace_obj, nft_id, test_coins,test_scenario::ctx(scenario));
-
-        test_scenario::next_tx(scenario, user2);
-        let test_coins1:Coin<SUI> = coin::mint_for_testing(10, test_scenario::ctx(scenario));
-        make_offer<my_module::Card, SUI>(&mut marketplace_obj, nft_id, test_coins1,test_scenario::ctx(scenario));
-
-        test_scenario::return_shared(marketplace_obj);
-        test_scenario::end(scenario_val);
-    }
 }
