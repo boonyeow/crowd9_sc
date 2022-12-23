@@ -4,7 +4,7 @@ module crowd9_sc::marketplace_tests{
     use crowd9_sc::my_module::{Self, Card};
     use std::debug::{Self};
     use sui::test_scenario::{Self, Scenario};
-    use sui::object::{Self};
+    // use sui::object::{Self};
     use sui::sui::SUI;
     use sui::coin::{Self, Coin};
 
@@ -54,11 +54,11 @@ module crowd9_sc::marketplace_tests{
         let scenario = &mut scenario_val;
         let marketplace_obj = init_marketplace(scenario);
         let nft_obj = mint_nft(scenario, ALICE);
-        let nft_id = object::id(&nft_obj);
-        marketplace::list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
+        // let nft_id = object::id(&nft_obj);
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
         test_scenario::next_tx(scenario, ALICE);
         let test_coin: Coin<SUI> = coin::mint_for_testing(5, test_scenario::ctx(scenario));
-        marketplace::make_offer<Card, SUI>(&mut marketplace_obj,  nft_id, test_coin, test_scenario::ctx(scenario));
+        marketplace::make_offer<Card, SUI>(&mut marketplace_obj,  listing_id, test_coin, test_scenario::ctx(scenario));
 
         test_scenario::return_shared(marketplace_obj);
         test_scenario::end(scenario_val);
@@ -71,15 +71,30 @@ module crowd9_sc::marketplace_tests{
         let scenario = &mut scenario_val;
         let marketplace_obj = init_marketplace(scenario);
         let nft_obj = mint_nft(scenario, ALICE);
-        let nft_id = object::id(&nft_obj);
-        marketplace::list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
+        // let nft_id = object::id(&nft_obj);
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
         test_scenario::next_tx(scenario, BOB);
         let test_coin: Coin<SUI> = coin::mint_for_testing(5, test_scenario::ctx(scenario));
-        marketplace::make_offer<Card, SUI>(&mut marketplace_obj,  nft_id, test_coin, test_scenario::ctx(scenario));
+        marketplace::make_offer<Card, SUI>(&mut marketplace_obj,  listing_id, test_coin, test_scenario::ctx(scenario));
 
         test_scenario::next_tx(scenario, BOB);
         let test_coin2: Coin<SUI> = coin::mint_for_testing(5, test_scenario::ctx(scenario));
-        marketplace::make_offer<Card, SUI>(&mut marketplace_obj,  nft_id, test_coin2, test_scenario::ctx(scenario));
+        marketplace::make_offer<Card, SUI>(&mut marketplace_obj,  listing_id, test_coin2, test_scenario::ctx(scenario));
+
+        test_scenario::return_shared(marketplace_obj);
+        test_scenario::end(scenario_val);
+    }
+
+    #[test]
+    fun testing1(){
+        let scenario_val = test_scenario::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let marketplace_obj = init_marketplace(scenario);
+        let nft_obj = mint_nft(scenario, ALICE);
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
+        test_scenario::next_tx(scenario, BOB);
+        let test_coin: Coin<SUI> = coin::mint_for_testing(10, test_scenario::ctx(scenario));
+        marketplace::buy<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
 
         test_scenario::return_shared(marketplace_obj);
         test_scenario::end(scenario_val);
