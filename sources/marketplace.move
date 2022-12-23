@@ -4,15 +4,16 @@ module crowd9_sc::marketplace {
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::sui::SUI;
-    use std::vector;
-    // use sui::coin::{Self, Coin};
+    // use std::vector;
+    use sui::coin::{Self, Coin};
 
-    use sui::coin::{Self};
-    use sui::dynamic_object_field as ofield;
-    use sui::balance::{Self, Balance};
+    // use std::option::{Self, Option};
+    use sui::dynamic_object_field::{Self as ofield};
+    use sui::balance::{/*Self,*/Balance};
     use sui::event::emit;
     use sui::table::{Self, Table};
     // use std::debug::{Self};
+    use sui::vec_set::{Self, VecSet};
 
     // ======= Constants =======
     const ENotOwner:u8 = 0; // Error code for restricted access function
@@ -22,20 +23,15 @@ module crowd9_sc::marketplace {
     // ======= Types =======
     struct Market<phantom COIN> has key {
         id: UID,
-        listed: Table<ID, u8>
+        listing_ids: VecSet<ID>
     }
 
     struct Listing has key, store{
         id: UID,
         price: u64,
         owner: address,
-        offers: vector<Offer>
-    }
-
-    struct Offer has key, store{
-        id: UID,
-        offeror: address,
-        amount_offered: Balance<SUI>
+        offerors: VecSet<address>,
+        offer_data: Table<address, Balance<SUI>>
     }
 
     // ======= Events =======
@@ -55,17 +51,17 @@ module crowd9_sc::marketplace {
     fun init(ctx: &mut TxContext){
         // create a shared marketplace that accepts SUI coin
         let id = object::new(ctx);
-        let listed = table::new(ctx);
-
-        transfer::share_object(Market<SUI>{ id , listed })
+        let listing_ids = vec_set::empty<ID>();
+        transfer::share_object(Market<SUI>{ id , listing_ids })
     }
 
-    public entry fun list<T: key + store, COIN>(market: &mut Market<COIN>, nft: T, price: u64, ctx: &mut TxContext){
+    public fun list<T: key + store, COIN>(market: &mut Market<COIN>, nft: T, price: u64, ctx: &mut TxContext): ID{
         let id = object::new(ctx);
         let nft_id = object::id(&nft);
         let owner = tx_context::sender(ctx);
-        let offers = vector::empty();
-        let listing = Listing { id, price, owner, offers};
+        let offer_data = table::new(ctx);
+        let offerors = vec_set::empty<address>();
+        let listing = Listing { id, price, owner, offerors, offer_data};
 
         emit(ListEvent<T> {  // emit an event when listed;
             listing_id: object::id(&listing),
@@ -74,54 +70,27 @@ module crowd9_sc::marketplace {
             price
         });
 
-        table::add(&mut market.listed, object::id(&listing), POPTART); // keep track of listed NFTs
+        let listing_id = object::id(&listing);
+        vec_set::insert(&mut market.listing_ids, listing_id);
+
         ofield::add(&mut listing.id, true, nft); //assigned true to indicate listed & set nft as child
         ofield::add(&mut market.id, nft_id, listing);
+        return listing_id
     }
 
-    use std::debug::{Self};
-    public fun delist<T: key + store, COIN>(market: &mut Market<COIN>, listing_id: ID, ctx: &mut TxContext) : T {
-        // removing or unwrapping dynamic field
-        let Listing {id, price:_, owner:_, offers} = ofield::remove<ID, Listing>(&mut market.id, listing_id);
-        let nft:T = ofield::remove(&mut id, true);
-        debug::print(&offers);
-
-
-        // restrict delist capability to only owner
-        // assert!(tx_context::sender(ctx) == owner, ENotOwner);
-
-        // proceed to refund offers
-        let i = 0; // counter for loop
-        let num_of_offers = vector::length(&offers);
-        while(i < num_of_offers){
-            let offer  = vector::borrow_mut(&mut offers, i);
-            let amt_offered = balance::value(&offer.amount_offered);
-            let temp = coin::take(&mut offer.amount_offered, amt_offered, ctx);
-            transfer::transfer(temp, offer.offeror);
-            i = i + 1;
-        };
-
-        debug::print(&offers);
-        vector::destroy_empty(offers);
-
-        //emit delist event
-        emit(DelistEvent<T>{
-            listing_id,
-            nft_id: object::id(&nft)
-        });
-
-        // clean up unused ids & pop from vector
-        table::remove(&mut market.listed, object::uid_to_inner(&id));
-        object::delete(id);
-        nft
+    // Make offer function
+    public entry fun make_offer<T: key + store, COIN>(market:&mut Market<COIN>, nft_id: ID, amount_offered: Coin<SUI>, ctx:&mut TxContext){
+        let listing = ofield::borrow_mut<ID, Listing>(&mut market.id, nft_id);
+        let offeror = tx_context::sender(ctx);
+        // to do -> add checks (i.e. sender is owner and table has sender -> reject),
+        // to do -> emit event
+        vec_set::insert(&mut listing.offerors, offeror);
+        table::add(&mut listing.offer_data, offeror, coin::into_balance(amount_offered));
     }
 
     // To do
     // Purchase NFT Function
     public entry fun buy(){}
-
-    // Make offer function
-    public entry fun make_offer(){}
 
     // Accept offer function
     public entry fun accept_offer(){}
@@ -131,12 +100,12 @@ module crowd9_sc::marketplace {
     // get all listings
 
 
-
     // ======= Unit Tests =======
     #[test]
     fun testing1(){
         use std::debug::{Self};
         use sui::test_scenario::{Self};
+        // use sui::coin;
         use crowd9_sc::my_module;
         let admin = @0xCAFE;
         let scenario_val = test_scenario::begin(admin);
@@ -158,7 +127,6 @@ module crowd9_sc::marketplace {
             my_module::mint_card(ctx);
             object::id_from_address(tx_context::last_created_object_id(ctx))
         };
-        debug::print(&nft_id);
 
         // list NFT
         test_scenario::next_tx(scenario, user1);
@@ -168,10 +136,32 @@ module crowd9_sc::marketplace {
         let nft_obj: my_module::Card = test_scenario::take_from_address_by_id(scenario, user1, nft_id);
         debug::print(&nft_obj);
 
+        debug::print(&b"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
+        debug::print(&marketplace_obj);
+        debug::print(&b"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
+
+        debug::print(&b"000000000000000000000000000000000000000000000000000000000000000000000000000000");
         list(&mut marketplace_obj, nft_obj, 10, test_scenario::ctx(scenario));
-        debug::print(&marketplace_obj); // size should be 1 because just listed 1
 
+        let listing_id =  object::id_from_address(tx_context::last_created_object_id(test_scenario::ctx(scenario)));
+        debug::print(&listing_id);
 
+        debug::print(&b"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
+        debug::print(&marketplace_obj);
+        debug::print(&b"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
+
+        let user2 = @0xAAAB;
+        test_scenario::next_tx(scenario, user2);
+
+        let test_coins:Coin<SUI> = coin::mint_for_testing(5, test_scenario::ctx(scenario));
+        make_offer<my_module::Card, SUI>(&mut marketplace_obj, nft_id, test_coins,test_scenario::ctx(scenario));
+
+        test_scenario::next_tx(scenario, user2);
+        let listing_obj: &Listing = ofield::borrow(&marketplace_obj.id, nft_id);
+        debug::print(listing_obj);
+        debug::print(table::borrow(&listing_obj.offer_data, user2));
+        debug::print(&b"heheheeeeeeeeeeeeeee");
+         // offer
 
         test_scenario::return_shared(marketplace_obj);
         test_scenario::end(scenario_val);
