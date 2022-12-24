@@ -95,28 +95,32 @@ module crowd9_sc::marketplace {
         return listing_id
     }
 
-    use std::debug;
+    // use std::debug;
     use std::vector;
     public entry fun buy<T: key + store,COIN>(market: &mut Market<COIN>, listing_id: ID, paid: Coin<SUI>, ctx: &mut TxContext){
-        // not tested
         let listing = ofield::borrow_mut<ID, Listing>(&mut market.id, listing_id);
         let buyer = tx_context::sender(ctx);
 
         assert!(listing.owner != buyer, EMustNotBeOwner);
         assert!(listing.price == coin::value(&paid), EAmountIncorrect);
-
         let offerors = vec_set::into_keys(listing.offerors);
+
         // refund all offers
         while(!vector::is_empty(&offerors)){
             let offeror = vector::pop_back(&mut offerors);
             let offer_balance = table::remove(&mut listing.offer_data, offeror);
             transfer::transfer(coin::from_balance(offer_balance, ctx), offeror);
+            // debug::print(&offeror);debug::print(&offeror);debug::print(&offeror);
         };
 
         transfer::transfer(paid,listing.owner); // transfer amount to seller
         let nft:T = ofield::remove(&mut listing.id, true);
-        debug::print(&nft);
         transfer::transfer(nft, buyer); // transfer nft to buyer
+
+        // clean up
+        let Listing{id, price:_, owner:_, offerors:_, offer_data} = ofield::remove(&mut market.id, object::id(listing));
+        object::delete(id);
+        table::destroy_empty(offer_data);
     }
 
     public entry fun make_offer<T: key + store, COIN>(market:&mut Market<COIN>, listing_id: ID, offered: Coin<SUI>, ctx:&mut TxContext){
