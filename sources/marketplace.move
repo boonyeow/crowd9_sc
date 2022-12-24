@@ -1,18 +1,16 @@
 module crowd9_sc::marketplace {
-    // use sui::object::{Self, ID, UID, id_to_address};
     use sui::object::{Self, ID, UID};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::sui::SUI;
-    // use std::vector;
+    use std::vector;
     use sui::coin::{Self, Coin};
 
-    // use std::option::{Self, Option};
     use sui::dynamic_object_field::{Self as ofield};
     use sui::balance::{/*Self,*/Balance};
     use sui::event::emit;
     use sui::table::{Self, Table};
-    // use std::debug::{Self};
+    use std::debug::{Self};
     use sui::vec_set::{Self, VecSet};
 
     // ======= Constants =======
@@ -20,6 +18,7 @@ module crowd9_sc::marketplace {
     const EHasExistingOffer:u64 = 1; // Error code when user has already made an offer for a listing
     const EMustNotBeOwner:u64 = 2; // Error code when user tries to make an offer to his/her own listing
     const EAmountIncorrect:u64 = 3; // Error code when user supply incorrect coin amount to purchase NFT
+    const EMustBeOwner:u64 = 4; // Error code when non-owner tries to delist
     const POPTART:u8 = 0; // Used as a constant value to construct Set using Table i.e. Table<ID, POPTART>
 
     // ======= Types =======
@@ -58,6 +57,7 @@ module crowd9_sc::marketplace {
 
     // ======= Core Functionalities =======
     fun init(ctx: &mut TxContext){
+        debug::print(&b"hihi");
         // create a shared marketplace that accepts SUI coin
         let id = object::new(ctx);
         let listing_ids = vec_set::empty<ID>();
@@ -95,14 +95,37 @@ module crowd9_sc::marketplace {
         return listing_id
     }
 
-    // use std::debug;
-    use std::vector;
+    public fun delist<T: key + store, COIN>(market:&mut Market<COIN>, listing_id: ID, ctx: &mut TxContext){
+        let listing = ofield::borrow_mut<ID, Listing>(&mut market.id, listing_id);
+        let sender = tx_context::sender(ctx);
+
+        assert!(listing.owner == sender, EMustBeOwner);
+        refund_offerors(listing, ctx);
+
+        let Listing{id, price:_, owner:_, offerors:_, offer_data} = ofield::remove(&mut market.id, object::id(listing));
+        object::delete(id);
+        table::destroy_empty(offer_data);
+    }
+
     public entry fun buy<T: key + store,COIN>(market: &mut Market<COIN>, listing_id: ID, paid: Coin<SUI>, ctx: &mut TxContext){
         let listing = ofield::borrow_mut<ID, Listing>(&mut market.id, listing_id);
         let buyer = tx_context::sender(ctx);
 
         assert!(listing.owner != buyer, EMustNotBeOwner);
         assert!(listing.price == coin::value(&paid), EAmountIncorrect);
+
+        refund_offerors(listing, ctx);
+        transfer::transfer(paid,listing.owner); // transfer amount to seller
+        let nft:T = ofield::remove(&mut listing.id, true);
+        transfer::transfer(nft, buyer); // transfer nft to buyer
+
+        // clean up
+        let Listing{id, price:_, owner:_, offerors:_, offer_data} = ofield::remove(&mut market.id, object::id(listing));
+        object::delete(id);
+        table::destroy_empty(offer_data);
+    }
+
+    fun refund_offerors(listing: &mut Listing, ctx: &mut TxContext){
         let offerors = vec_set::into_keys(listing.offerors);
 
         // refund all offers
@@ -112,15 +135,6 @@ module crowd9_sc::marketplace {
             transfer::transfer(coin::from_balance(offer_balance, ctx), offeror);
             // debug::print(&offeror);debug::print(&offeror);debug::print(&offeror);
         };
-
-        transfer::transfer(paid,listing.owner); // transfer amount to seller
-        let nft:T = ofield::remove(&mut listing.id, true);
-        transfer::transfer(nft, buyer); // transfer nft to buyer
-
-        // clean up
-        let Listing{id, price:_, owner:_, offerors:_, offer_data} = ofield::remove(&mut market.id, object::id(listing));
-        object::delete(id);
-        table::destroy_empty(offer_data);
     }
 
     public entry fun make_offer<T: key + store, COIN>(market:&mut Market<COIN>, listing_id: ID, offered: Coin<SUI>, ctx:&mut TxContext){
