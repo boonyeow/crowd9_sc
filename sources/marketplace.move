@@ -101,6 +101,7 @@ module crowd9_sc::marketplace {
 
         assert!(listing.owner == sender, EMustBeOwner);
         refund_offerors(listing, ctx);
+        vec_set::remove(&mut market.listing_ids, &listing_id);
 
         let Listing{id, price:_, owner:_, offerors:_, offer_data} = ofield::remove(&mut market.id, object::id(listing));
         object::delete(id);
@@ -160,5 +161,10 @@ module crowd9_sc::marketplace {
     // get all offers
 
     // get all listings
+    #[test_only]
+    public fun get_listing_id(marketplace: &Market<SUI>,listing_id: ID) : ID{
+        let listing: &Listing = ofield::borrow(&marketplace.id, listing_id);
+        object::uid_to_inner(&listing.id)
+    }
 
 }
