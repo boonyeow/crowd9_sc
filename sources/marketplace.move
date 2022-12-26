@@ -7,7 +7,7 @@ module crowd9_sc::marketplace {
     use sui::coin::{Self, Coin};
 
     use sui::dynamic_object_field::{Self as ofield};
-    use sui::balance::{/*Self,*/Balance};
+    use sui::balance::{Self, Balance};
     use sui::event::emit;
     use sui::table::{Self, Table};
     use std::debug::{Self};
@@ -19,6 +19,7 @@ module crowd9_sc::marketplace {
     const EMustNotBeOwner:u64 = 2; // Error code when user tries to make an offer to his/her own listing
     const EAmountIncorrect:u64 = 3; // Error code when user supply incorrect coin amount to purchase NFT
     const EMustBeOwner:u64 = 4; // Error code when non-owner tries to delist
+    const EOfferorDoesNotExist:u64 = 5; // Error code when offeror does not have an existing offer
     const POPTART:u8 = 0; // Used as a constant value to construct Set using Table i.e. Table<ID, POPTART>
 
     // ======= Types =======
@@ -54,6 +55,11 @@ module crowd9_sc::marketplace {
         offeror:address
     }
 
+    struct AcceptOfferEvent<phantom T> has copy, drop{
+        listing_id: ID,
+        offer_value: u64,
+        offeror:address
+    }
 
     // ======= Core Functionalities =======
     fun init(ctx: &mut TxContext){
@@ -72,15 +78,16 @@ module crowd9_sc::marketplace {
         transfer::share_object(Market<SUI>{ id , listing_ids })
     }
 
-    public fun list<T: key + store, COIN>(market: &mut Market<COIN>, nft: T, price: u64, ctx: &mut TxContext): ID{
+    public fun list<T: key + store, COIN>(market: &mut Market<COIN>, nft: T, price: u64, ctx: &mut TxContext): ID {
         let id = object::new(ctx);
         let nft_id = object::id(&nft);
         let owner = tx_context::sender(ctx);
         let offer_data = table::new(ctx);
         let offerors = vec_set::empty<address>();
-        let listing = Listing { id, price, owner, offerors, offer_data};
+        let listing = Listing { id, price, owner, offerors, offer_data };
 
-        emit(ListEvent<T> {  // emit an event when listed;
+        emit(ListEvent<T> {
+            // emit an event when listed;
             listing_id: object::id(&listing),
             nft_id,
             owner,
@@ -155,8 +162,80 @@ module crowd9_sc::marketplace {
         table::add(&mut listing.offer_data, offeror, coin::into_balance(offered));
     }
 
-    // Accept offer function
-    public entry fun accept_offer(){}
+    // // Accept offer function
+    public entry fun accept_offer<T: key + store, COIN>(
+        market: &mut Market<COIN>,
+        listing_id: ID,
+        accepted_offeror: address,
+        ctx: &mut TxContext
+    ) {
+        // Get NFT listing
+        let listing = ofield::borrow_mut<ID, Listing>(&mut market.id, listing_id);
+        // Get address of transaction initiator (person who is accepting offer)
+        let person_accepting = tx_context::sender(ctx);
+
+        // Check if person accepting is NFT owner
+        assert!(person_accepting == listing.owner, ENotOwner);
+        // Check if person accepting is not NFT owner
+        assert!(person_accepting != accepted_offeror, EMustNotBeOwner);
+        // Check if accepted offeror has an existing offer
+        assert!(table::contains(&listing.offer_data, accepted_offeror), EOfferorDoesNotExist);
+
+
+
+        // Remove accepted offer from listing's offerors' VecSet, offer_data's Table
+        vec_set::remove(&mut listing.offerors, &accepted_offeror);
+        let accepted_price = table::remove(&mut listing.offer_data, accepted_offeror);
+
+        // Emit event
+        emit(AcceptOfferEvent<T>{
+            listing_id,
+            offer_value: balance::value(&accepted_price),
+            offeror: accepted_offeror
+        });
+
+        // Transfer amount to NFT owner
+        transfer::transfer(coin::from_balance(accepted_price, ctx), listing.owner);
+
+        // Transfer NFT from listing struct to offeror
+        let nft:T = ofield::remove(&mut listing.id, true);
+        transfer::transfer(nft, accepted_offeror);
+
+        // Refund offerors who were not accepted
+        refund_offerors(listing, ctx);
+
+        // Clean up
+        let Listing{
+            id,
+            price:_,
+            owner:_,
+            offerors:_,
+            offer_data
+        } = ofield::remove(&mut market.id, object::id(listing));
+        object::delete(id);
+        table::destroy_empty(offer_data);
+    }
+
+    // Cancel offer function
+    public entry fun cancel_offer<T: key + store, COIN>(
+        market: &mut Market<COIN>,
+        listing_id: ID,
+        ctx: &mut TxContext
+    ) {
+        // Get NFT listing
+        let listing = ofield::borrow_mut<ID, Listing>(&mut market.id, listing_id);
+        // Get address of transaction initiator (person who is accepting offer)
+        let person_canceling = tx_context::sender(ctx);
+
+        // Check if person canceling has an existing offer made
+        assert!(table::contains(&listing.offer_data, person_canceling), EOfferorDoesNotExist);
+
+        // Remove offer, Refund user
+        vec_set::remove(&mut listing.offerors, &person_canceling);
+        let offered_price = table::remove(&mut listing.offer_data, person_canceling);
+        transfer::transfer(coin::from_balance(offered_price, ctx), person_canceling);
+    }
+
 
     // get all offers
 

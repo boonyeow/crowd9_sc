@@ -234,6 +234,16 @@ module crowd9_sc::marketplace_tests{
         assert!(get_coins_balance<SUI>(scenario, ADMIN) == 90, EAmountIncorrect);
         assert!(get_coins_balance<SUI>(scenario, ALICE) == 110, EAmountIncorrect);
 
+        //
+        test_scenario::next_tx(scenario, ADMIN);
+
+        // this is for scenario where ADMIN initially does not own any card
+        test_scenario::take_from_address<Card>(scenario, ADMIN); // if this is successful -> ADMIN owns the card
+        // this is for scenario where ADMIN owns multiple card
+        // test_scenario::take_from_address_by_id<Card>(scenario, ADMIN, <id_of_nft>);
+        // test_scenario::return_to_address(ADMIN, <obj>);
+        // object::delete(<obj>.id);
+
         test_scenario::return_shared(marketplace_obj);
         test_scenario::end(scenario_val);
     }
