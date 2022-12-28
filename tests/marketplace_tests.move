@@ -20,6 +20,8 @@ module crowd9_sc::marketplace_tests{
     const EHasExistingOffer:u64 = 1; // Error code when user has already made an offer for a listing
     const EMustNotBeOwner:u64 = 2; // Error code when user tries to make an offer to his/her own listing
     const EAmountIncorrect:u64 = 3; // Error code when user supply incorrect coin amount to purchase NFT
+    const EMustBeOwner:u64 = 4; // Error code when non-owner tries to delist
+    const EOfferorDoesNotExist:u64 = 5; // Error code when offeror does not have an existing offer
     const POPTART:u8 = 0; // Used as a constant value to construct Set using Table i.e. Table<ID, POPTART>
 
 
@@ -234,16 +236,6 @@ module crowd9_sc::marketplace_tests{
         assert!(get_coins_balance<SUI>(scenario, ADMIN) == 90, EAmountIncorrect);
         assert!(get_coins_balance<SUI>(scenario, ALICE) == 110, EAmountIncorrect);
 
-        //
-        test_scenario::next_tx(scenario, ADMIN);
-
-        // this is for scenario where ADMIN initially does not own any card
-        test_scenario::take_from_address<Card>(scenario, ADMIN); // if this is successful -> ADMIN owns the card
-        // this is for scenario where ADMIN owns multiple card
-        // test_scenario::take_from_address_by_id<Card>(scenario, ADMIN, <id_of_nft>);
-        // test_scenario::return_to_address(ADMIN, <obj>);
-        // object::delete(<obj>.id);
-
         test_scenario::return_shared(marketplace_obj);
         test_scenario::end(scenario_val);
     }
@@ -368,6 +360,217 @@ module crowd9_sc::marketplace_tests{
 
         test_scenario::next_tx(scenario, BOB);
         marketplace::delist<Card, SUI>(&mut marketplace_obj, listing_id, test_scenario::ctx(scenario));
+
+        test_scenario::return_shared(marketplace_obj);
+        test_scenario::end(scenario_val);
+    }
+
+    #[test]
+    fun accept_offer(){
+        let scenario_val = test_scenario::begin(ADMIN);
+        let scenario = &mut scenario_val;
+
+        init_test_accounts(scenario, 100);
+        let marketplace_obj = init_marketplace(scenario);
+        let nft_obj = mint_nft(scenario, ALICE);
+
+        let listing_price = 10;
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, listing_price, test_scenario::ctx(scenario));
+
+        test_scenario::next_tx(scenario, BOB);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, BOB, 15);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, CAROL);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, CAROL, 20);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, ALICE);
+        marketplace::accept_offer<Card, SUI>(&mut marketplace_obj, listing_id, CAROL, test_scenario::ctx(scenario));
+
+        // Check everyone's coin balance
+        assert!(get_coins_balance<SUI>(scenario, ALICE) == 120, EAmountIncorrect);
+        assert!(get_coins_balance<SUI>(scenario, BOB) == 100, EAmountIncorrect);
+        assert!(get_coins_balance<SUI>(scenario, CAROL) == 80, EAmountIncorrect);
+
+        let purchased_nft = test_scenario::take_from_address<Card>(scenario, CAROL);
+        test_scenario::return_to_address<Card>(CAROL, purchased_nft);
+
+        test_scenario::return_shared(marketplace_obj);
+        test_scenario::end(scenario_val);
+
+        /*
+        test_scenario::next_tx(scenario, ADMIN);
+
+        this is for scenario where ADMIN initially does not own any card
+        test_scenario::take_from_address<Card>(scenario, ADMIN); // if this is successful -> ADMIN owns the card
+        this is for scenario where ADMIN owns multiple card
+        test_scenario::take_from_address_by_id<Card>(scenario, ADMIN, <id_of_nft>);
+
+        test_scenario::return_to_address(ADMIN, <obj>);
+        object::delete(<obj>.id);
+        */
+    }
+
+
+    #[test]
+    #[expected_failure(abort_code = crowd9_sc::marketplace::ENotOwner)]
+    fun accept_but_not_owner(){
+        let scenario_val = test_scenario::begin(ADMIN);
+        let scenario = &mut scenario_val;
+
+        init_test_accounts(scenario, 100);
+        let marketplace_obj = init_marketplace(scenario);
+        let nft_obj = mint_nft(scenario, ALICE);
+
+        let listing_price = 10;
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, listing_price, test_scenario::ctx(scenario));
+
+        test_scenario::next_tx(scenario, BOB);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, BOB, 15);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, CAROL);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, CAROL, 20);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, ADMIN);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, ADMIN, 25);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, BOB);
+        marketplace::accept_offer<Card, SUI>(&mut marketplace_obj, listing_id, BOB, test_scenario::ctx(scenario));
+
+        test_scenario::return_shared(marketplace_obj);
+        test_scenario::end(scenario_val);
+    }
+
+
+    #[test]
+    #[expected_failure(abort_code = crowd9_sc::marketplace::EMustNotBeOwner)]
+    fun accept_but_buyer_is_owner(){
+        let scenario_val = test_scenario::begin(ADMIN);
+        let scenario = &mut scenario_val;
+
+        init_test_accounts(scenario, 100);
+        let marketplace_obj = init_marketplace(scenario);
+        let nft_obj = mint_nft(scenario, ALICE);
+
+        let listing_price = 10;
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, listing_price, test_scenario::ctx(scenario));
+
+        test_scenario::next_tx(scenario, BOB);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, BOB, 15);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, CAROL);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, CAROL, 20);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, ALICE);
+        marketplace::accept_offer<Card, SUI>(&mut marketplace_obj, listing_id, ALICE, test_scenario::ctx(scenario));
+
+        test_scenario::return_shared(marketplace_obj);
+        test_scenario::end(scenario_val);
+    }
+
+
+    #[test]
+    #[expected_failure(abort_code = crowd9_sc::marketplace::EOfferorDoesNotExist)]
+    fun accept_but_no_offer_from_offeror(){
+        let scenario_val = test_scenario::begin(ADMIN);
+        let scenario = &mut scenario_val;
+
+        init_test_accounts(scenario, 100);
+        let marketplace_obj = init_marketplace(scenario);
+        let nft_obj = mint_nft(scenario, ALICE);
+
+        let listing_price = 10;
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, listing_price, test_scenario::ctx(scenario));
+
+        test_scenario::next_tx(scenario, BOB);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, BOB, 15);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, CAROL);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, CAROL, 20);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, BOB);
+        {
+            marketplace::cancel_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, ALICE);
+        marketplace::accept_offer<Card, SUI>(&mut marketplace_obj, listing_id, BOB, test_scenario::ctx(scenario));
+
+        test_scenario::return_shared(marketplace_obj);
+        test_scenario::end(scenario_val);
+    }
+
+    #[test]
+    fun cancel_offer(){
+        let scenario_val = test_scenario::begin(ADMIN);
+        let scenario = &mut scenario_val;
+
+        init_test_accounts(scenario, 100);
+        let marketplace_obj = init_marketplace(scenario);
+        let nft_obj = mint_nft(scenario, ALICE);
+
+        let listing_price = 10;
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, listing_price, test_scenario::ctx(scenario));
+
+        test_scenario::next_tx(scenario, BOB);
+        {
+            let test_coin : Coin<SUI> = take_coins(scenario, BOB, 15);
+            marketplace::make_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_coin, test_scenario::ctx(scenario));
+        };
+
+        assert!(get_coins_balance<SUI>(scenario, BOB) == 85, EAmountIncorrect);
+
+        marketplace::cancel_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_scenario::ctx(scenario));
+
+        assert!(get_coins_balance<SUI>(scenario, BOB) == 100, EAmountIncorrect);
+
+        test_scenario::return_shared(marketplace_obj);
+        test_scenario::end(scenario_val);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = crowd9_sc::marketplace::EOfferorDoesNotExist)]
+    fun cancel_without_offer() {
+        let scenario_val = test_scenario::begin(ADMIN);
+        let scenario = &mut scenario_val;
+
+        init_test_accounts(scenario, 100);
+        let marketplace_obj = init_marketplace(scenario);
+        let nft_obj = mint_nft(scenario, ALICE);
+
+        let listing_price = 10;
+        let listing_id = marketplace::list(&mut marketplace_obj, nft_obj, listing_price, test_scenario::ctx(scenario));
+
+        test_scenario::next_tx(scenario, BOB);
+        {
+            marketplace::cancel_offer<Card, SUI>(&mut marketplace_obj, listing_id, test_scenario::ctx(scenario));
+        };
 
         test_scenario::return_shared(marketplace_obj);
         test_scenario::end(scenario_val);

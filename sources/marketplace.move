@@ -176,12 +176,10 @@ module crowd9_sc::marketplace {
 
         // Check if person accepting is NFT owner
         assert!(person_accepting == listing.owner, ENotOwner);
-        // Check if person accepting is not NFT owner
+        // Check if person accepting is not accepted NFT offeror
         assert!(person_accepting != accepted_offeror, EMustNotBeOwner);
         // Check if accepted offeror has an existing offer
         assert!(table::contains(&listing.offer_data, accepted_offeror), EOfferorDoesNotExist);
-
-
 
         // Remove accepted offer from listing's offerors' VecSet, offer_data's Table
         vec_set::remove(&mut listing.offerors, &accepted_offeror);
