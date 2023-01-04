@@ -46,7 +46,13 @@ module crowd9_sc::marketplace {
 
     struct DelistEvent<phantom T> has copy, drop{
         listing_id:ID,
-        nft_id: ID,
+        owner: address,
+    }
+
+    struct BuyEvent<phantom T> has copy, drop{
+        listing_id:ID,
+        price: u64,
+        buyer: address,
     }
 
     struct OfferEvent<phantom T> has copy, drop{
@@ -107,6 +113,9 @@ module crowd9_sc::marketplace {
         let sender = tx_context::sender(ctx);
 
         assert!(listing.owner == sender, EMustBeOwner);
+
+        emit(DelistEvent<T>{ listing_id, owner: listing.owner });
+
         refund_offerors(listing, ctx);
         vec_set::remove(&mut market.listing_ids, &listing_id);
 
@@ -122,15 +131,12 @@ module crowd9_sc::marketplace {
         assert!(listing.owner != buyer, EMustNotBeOwner);
         assert!(listing.price == coin::value(&paid), EAmountIncorrect);
 
+        emit(BuyEvent<T>{ listing_id, buyer, price: listing.price });
+
         refund_offerors(listing, ctx);
         transfer::transfer(paid,listing.owner); // transfer amount to seller
         let nft:T = ofield::remove(&mut listing.id, true);
         transfer::transfer(nft, buyer); // transfer nft to buyer
-
-        // clean up
-        let Listing{id, price:_, owner:_, offerors:_, offer_data} = ofield::remove(&mut market.id, object::id(listing));
-        object::delete(id);
-        table::destroy_empty(offer_data);
     }
 
     fun refund_offerors(listing: &mut Listing, ctx: &mut TxContext){
@@ -151,12 +157,8 @@ module crowd9_sc::marketplace {
         assert!(listing.owner != offeror, EMustNotBeOwner);
         assert!(!table::contains(&listing.offer_data, offeror), EHasExistingOffer);
         // another scenario -> supplied coins > price -> to immediate purchase, or disallow
-
-        emit(OfferEvent<T>{
-            listing_id,
-            offer_value: coin::value(&offered),
-            offeror,
-        });
+        // listing.price
+        emit(OfferEvent<T>{ listing_id, offer_value: coin::value(&offered), offeror });
 
         vec_set::insert(&mut listing.offerors, offeror);
         table::add(&mut listing.offer_data, offeror, coin::into_balance(offered));
@@ -244,4 +246,31 @@ module crowd9_sc::marketplace {
         object::uid_to_inner(&listing.id)
     }
 
+    struct TestCapability has key {id:UID}
+
+
+    const ADMIN: address = @0xCAFE;
+    const BOB: address = @0xCAFA;
+    #[test_only]
+    fun testcap() {
+        use sui::test_scenario::{Self};
+        use sui::object::{Self};
+        let scenario_val = test_scenario::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        transfer::transfer(TestCapability { id: object::new(test_scenario::ctx(scenario)) }, ADMIN);
+        test_scenario::next_tx(scenario, ADMIN);
+        {
+        let x: TestCapability = test_scenario::take_from_address(scenario, ADMIN);
+        debug::print(&x);
+        transfer::transfer(x, BOB);
+        };
+        test_scenario::next_tx(scenario, BOB);
+        {
+        let x: TestCapability = test_scenario::take_from_address(scenario, ADMIN);
+        debug::print(&x);
+        test_scenario::return_to_address(BOB, x);
+        };
+
+        test_scenario::end(scenario_val);
+    }
 }

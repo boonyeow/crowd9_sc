@@ -303,7 +303,7 @@ module crowd9_sc::marketplace_tests{
         marketplace::delist<Card, SUI>(&mut marketplace_obj, listing_id, test_scenario::ctx(scenario));
         let retrieved_id1 = marketplace::get_listing_id(&marketplace_obj, listing_id);
         debug::print(&retrieved_id1);
-
+        
         test_scenario::return_shared(marketplace_obj);
         test_scenario::end(scenario_val);
     }
