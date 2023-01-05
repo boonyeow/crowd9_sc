@@ -1,7 +1,4 @@
 module crowd9_sc::ino{
-    // YJ: reference to ownerlist_oracle
-    use crowd9_sc::ownerlist_oracle::{Self, CapabilityBook};
-
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::coin::{Self, Coin};
@@ -34,14 +31,6 @@ module crowd9_sc::ino{
 
     struct OwnerCap has key {
         id : UID
-    }
-
-    // YJ: for ownerlist_oracle
-    struct AuthorityCap has key, store{
-        id: UID,
-        next_id: Option<UID>,
-        next_index: u64,
-        project_id: ID,
     }
 
     struct Campaign has key, store{
@@ -185,9 +174,7 @@ module crowd9_sc::ino{
         // TODO emit cancel event
     }
 
-    // YJ: we should opt for scheduler to end_campaign and incur airdrop fee, too much for user
-    // YJ: it helps me to intialize and transfer authoritycap for each project to us too with ctx. 
-    public fun end_campaign(campaign: &mut Campaign, cap_book: &mut CapabilityBook, ctx: &mut TxContext) {
+    public fun end_campaign(campaign: &mut Campaign, ctx: &mut TxContext) {
         assert!(campaign.status == SActive, EDisallowedAction);
 
         let total_raised = balance::value(&campaign.balance);
@@ -215,18 +202,6 @@ module crowd9_sc::ino{
                 metadata,
                 owner_cap_id: campaign.owner_cap_id,
             };
-
-            //YJ: Create authority cap for each project
-            let authority_cap = AuthorityCap { 
-                id: object::new(ctx),
-                next_id: option::some(object::new(ctx)),
-                next_index: 0,
-                project_id: object::id(&project),
-            };
-            // YJ: Add authority cap to capbook
-            ownerlist_oracle::add_to_capbook(object::id(&project), object::id(&authority_cap), cap_book);
-            //YJ: Transfer authority cap to us
-            transfer::transfer(authority_cap, tx_context::sender(ctx));
 
             transfer::share_object(project);
         }
@@ -294,5 +269,4 @@ module crowd9_sc::ino{
         let refund_amt = quantity_contributed * campaign.price_per_nft;
         transfer::transfer(coin::take(&mut campaign.balance, refund_amt, ctx), contributor);
     }
-    
 }
