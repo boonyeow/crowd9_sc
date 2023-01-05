@@ -37,11 +37,11 @@ module crowd9_sc::ino{
     }
 
     // YJ: for ownerlist_oracle
-    struct AuthorityCap has key, store {
+    struct AuthorityCap has key, store{
         id: UID,
         next_id: Option<UID>,
         next_index: u64,
-        gov_id: ID,
+        project_id: ID,
     }
 
     struct Campaign has key, store{
@@ -221,7 +221,7 @@ module crowd9_sc::ino{
                 id: object::new(ctx),
                 next_id: option::some(object::new(ctx)),
                 next_index: 0,
-                gov_id: object::id(&project),
+                project_id: object::id(&project),
             };
             // YJ: Add authority cap to capbook
             ownerlist_oracle::add_to_capbook(object::id(&project), object::id(&authority_cap), cap_book);
@@ -294,4 +294,5 @@ module crowd9_sc::ino{
         let refund_amt = quantity_contributed * campaign.price_per_nft;
         transfer::transfer(coin::take(&mut campaign.balance, refund_amt, ctx), contributor);
     }
+    
 }
