@@ -10,7 +10,7 @@ module crowd9_sc::ino{
     // use std::debug;
     use sui::event;
     use sui::table::{Self, Table};
-    // use sui::vec_set::{Self};
+    // use sui::vec_set::{VecSet};
     use sui::url::{Self, Url};
     // use crowd9_sc::errors::{};
 
@@ -268,10 +268,5 @@ module crowd9_sc::ino{
         let quantity_contributed = table::remove(&mut campaign.contributors_data, contributor);
         let refund_amt = quantity_contributed * campaign.price_per_nft;
         transfer::transfer(coin::take(&mut campaign.balance, refund_amt, ctx), contributor);
-    }
-
-    /// Getters
-    public fun get_campaign_total_NFT_supply(_project: &Project): u64 {
-        _project.metadata.current_supply
     }
 }

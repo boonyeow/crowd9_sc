@@ -35,7 +35,7 @@
 module sui::bcs {
     use std::option::{Self, Option};
     use std::vector as v;
-    use sui::address;
+    use sui::object;
     use std::bcs;
 
     /// For when bytes length is less than required for deserialization.
@@ -86,7 +86,7 @@ module sui::bcs {
             v::push_back(&mut addr_bytes, v::pop_back(&mut bcs.bytes));
             i = i + 1;
         };
-        address::from_bytes(addr_bytes)
+        object::address_from_bytes(addr_bytes)
     }
 
     /// Read a `bool` value from bcs-serialized bytes.
@@ -155,6 +155,10 @@ module sui::bcs {
             shift = shift + 7;
         };
         total
+    }
+
+    spec peel_vec_length {
+        pragma intrinsic = true;
     }
 
     /// Peel a vector of `address` from serialized bytes.
@@ -263,9 +267,6 @@ module sui::bcs {
             option::none()
         }
     }
-
-    // TODO: re-enable once bit-wise operators in peel_vec_length are supported in the prover
-    spec module { pragma verify = false; }
 
     // === Tests ===
 
