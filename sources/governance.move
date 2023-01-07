@@ -1,6 +1,6 @@
 module crowd9_sc::governance {
     use crowd9_sc::ino::{Self, Project};
-    use crowd9_sc::dict::{Dict};
+    use crowd9_sc::dict::{Self, Dict};
     use sui::transfer;
     use sui::table::{Self, Table};
     use sui::vec_set::{Self, VecSet};
@@ -58,8 +58,8 @@ module crowd9_sc::governance {
             id: object::new(ctx),
             project_id: object::id(_project),
             start_timestamp: _start_timestamp,
-            proposal_ids: vec_set::empty<address>(),
-            proposal_data: table::new(ctx),
+            proposal_data: dict::new(ctx),
+            delegated_to: table::new(ctx)
         };
         // ino::set_stopwatch(collection, ctx);
         transfer::share_object(governance);
@@ -89,9 +89,7 @@ module crowd9_sc::governance {
         // assert!(vec_set::size(&proposal.no_vote.holders) == vec_set::size(&_address_list), 1);
         // assert!(proposal.no_vote.count == ino::get_collection_currentSupply(_collection), 1);
 
-        vec_set::insert(&mut _governance.proposal_ids, object::uid_to_address(&proposal.id));
-        table::add(&mut _governance.proposal_data, object::uid_to_address(&proposal.id), proposal);
-
+        dict::add(&mut _governance.proposal_data,object::uid_to_address(&proposal.id), proposal);
     }
 
     /// hardcoded vote count update until oracle is up
@@ -131,8 +129,8 @@ module crowd9_sc::governance {
     }
 
     /// Getters
-    public fun get_governance_proposals_length(_governance_obj: &Governance): u64 {
-        vec_set::size(&_governance_obj.proposal_ids)
+    public fun get_governance_proposals_length(_governance: &Governance): u64 {
+        dict::length(&_governance.proposal_data)
     }
 
     public fun address_vote_choice(_proposal: &Proposal, _voter: &address): u8 {
