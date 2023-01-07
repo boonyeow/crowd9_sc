@@ -1,5 +1,6 @@
 module crowd9_sc::governance {
     use crowd9_sc::ino::{Self, Project};
+    use crowd9_sc::balance::{Self as c9_balance};
     use crowd9_sc::dict::{Self, Dict};
     use sui::transfer;
     use sui::table::{Self, Table};
@@ -82,7 +83,7 @@ module crowd9_sc::governance {
             for: Vote { holders: vec_set::empty<address>(), count: 0 },
             against: Vote { holders: vec_set::empty<address>(), count: 0 },
             abstain: Vote { holders: vec_set::empty<address>(), count: 0 },
-            no_vote: Vote { holders: _address_list, count: ino::get_campaign_total_NFT_supply(_project) },
+            no_vote: Vote { holders: _address_list, count: c9_balance::supply_value(ino::get_supply(_project)) },
         };
 
         // To comment out upon deployment

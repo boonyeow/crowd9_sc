@@ -317,11 +317,6 @@ module crowd9_sc::ino{
     }
 
     #[test_only]
-    public fun get_supply(project: &Project): &NftSupply{
-        &project.metadata.supply
-    }
-
-    #[test_only]
     public fun get_balance(nft: &Nft): &NftBalance{
         &nft.balance
     }
@@ -332,7 +327,7 @@ module crowd9_sc::ino{
     }
 
     /// Getters
-    public fun get_campaign_total_NFT_supply(_project: &Project): u64 {
-        _project.metadata.current_supply
+    public fun get_supply(project: &Project): &NftSupply{
+        &project.metadata.supply
     }
 }
