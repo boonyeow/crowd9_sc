@@ -1,5 +1,6 @@
 module crowd9_sc::governance {
     use crowd9_sc::ino::{Self, Project};
+    use crowd9_sc::dict::{Dict};
     use sui::transfer;
     use sui::table::{Self, Table};
     use sui::vec_set::{Self, VecSet};
@@ -28,8 +29,8 @@ module crowd9_sc::governance {
         id: UID,
         project_id: ID,
         start_timestamp: u64,
-        proposal_ids: VecSet<address>,
-        proposal_data: Table<address, Proposal>
+        proposal_data: Dict<address, Proposal>,
+        delegated_to: Table<address, address>
     }
 
     struct Proposal has key, store {
