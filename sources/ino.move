@@ -269,4 +269,9 @@ module crowd9_sc::ino{
         let refund_amt = quantity_contributed * campaign.price_per_nft;
         transfer::transfer(coin::take(&mut campaign.balance, refund_amt, ctx), contributor);
     }
+
+    /// Getters
+    public fun get_campaign_total_NFT_supply(_project: &Project): u64 {
+        _project.metadata.current_supply
+    }
 }
