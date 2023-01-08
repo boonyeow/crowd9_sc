@@ -7,6 +7,7 @@ module crowd9_sc::governance {
     use sui::vec_set::{Self, VecSet};
     use sui::object::{Self, UID, ID};
     use sui::tx_context::{Self, TxContext};
+    use std::vector;
     // use sui::sui::SUI;
     // use sui::coin::{Self};
 
@@ -26,6 +27,11 @@ module crowd9_sc::governance {
     const VAbstain: u8 = 2;
     const VNoVote: u8 = 3;
 
+    const SActive:u8 = 0;
+    const SSuccess:u8 = 1;
+    const SFailure:u8 = 2;
+
+
     struct Governance has key {
         id: UID,
         project_id: ID,
@@ -37,11 +43,13 @@ module crowd9_sc::governance {
     struct Proposal has key, store {
         id: UID,
         type: u8,
+        status: u8,
         proposed_tap_rate: u8,
         for: Vote,
         against: Vote,
         abstain: Vote,
         no_vote: Vote,
+        voting_power: Dict<address, u8>
     }
 
     struct Vote has store {
@@ -68,6 +76,7 @@ module crowd9_sc::governance {
 
     public fun create_proposal(
         address_list: VecSet<address>,
+        voting_power: Dict<address, u8>,
         project: &Project,
         governance: &mut Governance,
         type: u8,
@@ -79,11 +88,13 @@ module crowd9_sc::governance {
         let proposal = Proposal {
             id: object::new(ctx),
             type,
+            status: SActive,
             proposed_tap_rate,
             for: Vote { holders: vec_set::empty<address>(), count: 0 },
             against: Vote { holders: vec_set::empty<address>(), count: 0 },
             abstain: Vote { holders: vec_set::empty<address>(), count: 0 },
             no_vote: Vote { holders: address_list, count: c9_balance::supply_value(ino::get_supply(project)) },
+            voting_power,
         };
 
         // To comment out upon deployment
@@ -98,6 +109,7 @@ module crowd9_sc::governance {
         let current_vote_choice: u8 = address_vote_choice(proposal, &tx_context::sender(ctx));
         assert!(current_vote_choice != vote_choice, EDuplicatedVotes);
         assert!(vote_choice != VNoVote, EUnauthorizedAction);
+        assert!(proposal.status == SActive, EUnauthorizedAction);
         // Updating previous votes
         if (current_vote_choice == VNoVote) {
             vec_set::remove(&mut proposal.no_vote.holders, &tx_context::sender(ctx));
@@ -129,11 +141,30 @@ module crowd9_sc::governance {
         }
     }
 
+    // public fun end_proposal(proposal: &mut Proposal, address_list: Dict<address, u8>) {
+    //     proposal
+    // }
+
     public fun delegate(governance: &mut Governance, delegatee: address, ctx: &mut TxContext) {
         assert!(table::borrow(&governance.delegated_to, delegatee) == &delegatee, 0);
         assert!(table::borrow(&governance.delegated_to, tx_context::sender(ctx)) == &tx_context::sender(ctx), 0);
         table::remove(&mut governance.delegated_to, tx_context::sender(ctx));
         table::add(&mut governance.delegated_to, tx_context::sender(ctx), delegatee);
+    }
+
+    /// Helper Functions
+    fun update_voting_power(governance: &Governance, proposal: &mut Proposal) {
+        let keys = dict::get_keys(&proposal.voting_power);
+        while(!vector::is_empty(&keys)) {
+            let address = vector::pop_back(&mut keys);
+            let power = dict::borrow(&proposal.voting_power, address);
+            let delegatee = table::borrow(&governance.delegated_to, address);
+            let delegatee_current_power = dict::borrow(&proposal.voting_power, address);
+            let updated_delegatee_current_power: u8 = *power + *delegatee_current_power;
+            // update delegatee vote power
+            dict::remove(&mut proposal.voting_power, *delegatee);
+            dict::add(&mut proposal.voting_power, *delegatee, updated_delegatee_current_power);
+        };
     }
 
     /// Getters
