@@ -51,14 +51,14 @@ module crowd9_sc::governance {
 
     /// ======= Core Functionalities =======
     public fun create_governance(
-        _project: &mut Project,
-        _start_timestamp: u64,
+        project: &mut Project,
+        start_timestamp: u64,
         ctx: &mut TxContext
     ) {
         let governance = Governance {
             id: object::new(ctx),
-            project_id: object::id(_project),
-            start_timestamp: _start_timestamp,
+            project_id: object::id(project),
+            start_timestamp,
             proposal_data: dict::new(ctx),
             delegated_to: table::new(ctx)
         };
@@ -67,81 +67,88 @@ module crowd9_sc::governance {
     }
 
     public fun create_proposal(
-        _address_list: VecSet<address>,
-        _project: &Project,
-        _governance: &mut Governance,
-        _type: u8,
-        _proposed_tap_rate: u8,
+        address_list: VecSet<address>,
+        project: &Project,
+        governance: &mut Governance,
+        type: u8,
+        proposed_tap_rate: u8,
         ctx: &mut TxContext,
     ) {
         // for address_list, we will call oracles to get the list of addresses directly,
         // so don't have to pass in address_list as a parameter to prevent spoofing.
         let proposal = Proposal {
             id: object::new(ctx),
-            type: _type,
-            proposed_tap_rate: _proposed_tap_rate,
+            type,
+            proposed_tap_rate,
             for: Vote { holders: vec_set::empty<address>(), count: 0 },
             against: Vote { holders: vec_set::empty<address>(), count: 0 },
             abstain: Vote { holders: vec_set::empty<address>(), count: 0 },
-            no_vote: Vote { holders: _address_list, count: c9_balance::supply_value(ino::get_supply(_project)) },
+            no_vote: Vote { holders: address_list, count: c9_balance::supply_value(ino::get_supply(project)) },
         };
 
         // To comment out upon deployment
         // assert!(vec_set::size(&proposal.no_vote.holders) == vec_set::size(&_address_list), 1);
         // assert!(proposal.no_vote.count == ino::get_collection_currentSupply(_collection), 1);
 
-        dict::add(&mut _governance.proposal_data,object::uid_to_address(&proposal.id), proposal);
+        dict::add(&mut governance.proposal_data,object::uid_to_address(&proposal.id), proposal);
     }
 
     /// hardcoded vote count update until oracle is up
-    public fun vote_proposal(_proposal: &mut Proposal, _vote_choice: u8, ctx: &mut TxContext) {
-        let current_vote_choice: u8 = address_vote_choice(_proposal, &tx_context::sender(ctx));
-        assert!(current_vote_choice != _vote_choice, EDuplicatedVotes);
-        assert!(_vote_choice != VNoVote, EUnauthorizedAction);
+    public fun vote_proposal(proposal: &mut Proposal, vote_choice: u8, ctx: &mut TxContext) {
+        let current_vote_choice: u8 = address_vote_choice(proposal, &tx_context::sender(ctx));
+        assert!(current_vote_choice != vote_choice, EDuplicatedVotes);
+        assert!(vote_choice != VNoVote, EUnauthorizedAction);
         // Updating previous votes
         if (current_vote_choice == VNoVote) {
-            vec_set::remove(&mut _proposal.no_vote.holders, &tx_context::sender(ctx));
-            _proposal.no_vote.count = _proposal.no_vote.count - 1;
+            vec_set::remove(&mut proposal.no_vote.holders, &tx_context::sender(ctx));
+            proposal.no_vote.count = proposal.no_vote.count - 1;
         } else if (current_vote_choice == VFor) {
-            vec_set::remove(&mut _proposal.for.holders, &tx_context::sender(ctx));
-            _proposal.for.count = _proposal.for.count - 1;
+            vec_set::remove(&mut proposal.for.holders, &tx_context::sender(ctx));
+            proposal.for.count = proposal.for.count - 1;
         } else if (current_vote_choice == VAgainst) {
-            vec_set::remove(&mut _proposal.against.holders, &tx_context::sender(ctx));
-            _proposal.against.count = _proposal.against.count - 1;
+            vec_set::remove(&mut proposal.against.holders, &tx_context::sender(ctx));
+            proposal.against.count = proposal.against.count - 1;
         } else if (current_vote_choice == VAbstain) {
-            vec_set::remove(&mut _proposal.abstain.holders, &tx_context::sender(ctx));
-            _proposal.abstain.count = _proposal.abstain.count - 1;
+            vec_set::remove(&mut proposal.abstain.holders, &tx_context::sender(ctx));
+            proposal.abstain.count = proposal.abstain.count - 1;
         } else {
             abort EUnxpectedError
         };
         // Updating current votes
-        if (_vote_choice == VFor) {
-            vec_set::insert(&mut _proposal.no_vote.holders, tx_context::sender(ctx));
-            _proposal.for.count = _proposal.for.count + 1;
-        } else if (_vote_choice == VAgainst) {
-            vec_set::insert(&mut _proposal.against.holders, tx_context::sender(ctx));
-            _proposal.against.count = _proposal.against.count + 1;
-        } else if (_vote_choice == VAbstain) {
-            vec_set::insert(&mut _proposal.abstain.holders, tx_context::sender(ctx));
-            _proposal.abstain.count = _proposal.abstain.count + 1;
+        if (vote_choice == VFor) {
+            vec_set::insert(&mut proposal.no_vote.holders, tx_context::sender(ctx));
+            proposal.for.count = proposal.for.count + 1;
+        } else if (vote_choice == VAgainst) {
+            vec_set::insert(&mut proposal.against.holders, tx_context::sender(ctx));
+            proposal.against.count = proposal.against.count + 1;
+        } else if (vote_choice == VAbstain) {
+            vec_set::insert(&mut proposal.abstain.holders, tx_context::sender(ctx));
+            proposal.abstain.count = proposal.abstain.count + 1;
         } else {
             abort ENonExistingAction
         }
     }
 
-    /// Getters
-    public fun get_governance_proposals_length(_governance: &Governance): u64 {
-        dict::length(&_governance.proposal_data)
+    public fun delegate(governance: &mut Governance, delegatee: address, ctx: &mut TxContext) {
+        assert!(table::borrow(&governance.delegated_to, delegatee) == &delegatee, 0);
+        assert!(table::borrow(&governance.delegated_to, tx_context::sender(ctx)) == &tx_context::sender(ctx), 0);
+        table::remove(&mut governance.delegated_to, tx_context::sender(ctx));
+        table::add(&mut governance.delegated_to, tx_context::sender(ctx), delegatee);
     }
 
-    public fun address_vote_choice(_proposal: &Proposal, _voter: &address): u8 {
-        if (vec_set::contains(&_proposal.no_vote.holders, _voter)) {
+    /// Getters
+    public fun get_governance_proposals_length(governance: &Governance): u64 {
+        dict::length(&governance.proposal_data)
+    }
+
+    public fun address_vote_choice(proposal: &Proposal, voter: &address): u8 {
+        if (vec_set::contains(&proposal.no_vote.holders, voter)) {
             return VNoVote
-        } else if (vec_set::contains(&_proposal.for.holders, _voter)) {
+        } else if (vec_set::contains(&proposal.for.holders, voter)) {
             return VFor
-        } else if (vec_set::contains(&_proposal.against.holders, _voter)) {
+        } else if (vec_set::contains(&proposal.against.holders, voter)) {
             return VAgainst
-        } else if (vec_set::contains(&_proposal.abstain.holders, _voter)) {
+        } else if (vec_set::contains(&proposal.abstain.holders, voter)) {
             return VAbstain
         } else {
             abort EUnauthorizedUser
