@@ -15,9 +15,11 @@ module crowd9_sc::governance {
     // Status Codes
     const EDuplicatedVotes: u64 = 001;
     const EUnauthorizedUser: u64 = 002;
-    const EUnauthorizedAction: u64 = 003;
+    const EInvalidAction: u64 = 003;
     const ENonExistingAction: u64 = 004;
     const EUnxpectedError: u64 = 005;
+    const ERepeatedDelegation: u64 = 006;
+    const EInvalidDelegatee: u64 = 007;
 
     const PRefund: u8 = 0;
     const PAdjustment: u8 = 1;
@@ -37,19 +39,19 @@ module crowd9_sc::governance {
         project_id: ID,
         start_timestamp: u64,
         proposal_data: Dict<address, Proposal>,
-        delegated_to: Table<address, address>
+        delegated_to: Table<address, address>,
     }
 
     struct Proposal has key, store {
         id: UID,
         type: u8,
         status: u8,
-        proposed_tap_rate: u8,
+        proposed_tap_rate: u64,
         for: Vote,
         against: Vote,
         abstain: Vote,
         no_vote: Vote,
-        voting_power: Dict<address, u8>
+        voting_power: Dict<address, u64>
     }
 
     struct Vote has store {
@@ -76,11 +78,11 @@ module crowd9_sc::governance {
 
     public fun create_proposal(
         address_list: VecSet<address>,
-        voting_power: Dict<address, u8>,
+        voting_power: Dict<address, u64>,
         project: &Project,
         governance: &mut Governance,
         type: u8,
-        proposed_tap_rate: u8,
+        proposed_tap_rate: u64,
         ctx: &mut TxContext,
     ) {
         // for address_list, we will call oracles to get the list of addresses directly,
@@ -96,82 +98,99 @@ module crowd9_sc::governance {
             no_vote: Vote { holders: address_list, count: c9_balance::supply_value(ino::get_supply(project)) },
             voting_power,
         };
-
-        // To comment out upon deployment
-        // assert!(vec_set::size(&proposal.no_vote.holders) == vec_set::size(&_address_list), 1);
-        // assert!(proposal.no_vote.count == ino::get_collection_currentSupply(_collection), 1);
-
         dict::add(&mut governance.proposal_data,object::uid_to_address(&proposal.id), proposal);
     }
 
-    /// hardcoded vote count update until oracle is up
     public fun vote_proposal(proposal: &mut Proposal, vote_choice: u8, ctx: &mut TxContext) {
-        let current_vote_choice: u8 = address_vote_choice(proposal, &tx_context::sender(ctx));
+        let sender = tx_context::sender(ctx); //
+        let current_vote_choice: u8 = address_vote_choice(proposal, &sender);
+        let voting_power = dict::borrow(&proposal.voting_power, sender);
         assert!(current_vote_choice != vote_choice, EDuplicatedVotes);
-        assert!(vote_choice != VNoVote, EUnauthorizedAction);
-        assert!(proposal.status == SActive, EUnauthorizedAction);
+        assert!(vote_choice != VNoVote, EInvalidAction);
+        assert!(proposal.status == SActive, EInvalidAction);
         // Updating previous votes
         if (current_vote_choice == VNoVote) {
-            vec_set::remove(&mut proposal.no_vote.holders, &tx_context::sender(ctx));
-            proposal.no_vote.count = proposal.no_vote.count - 1;
+            vec_set::remove(&mut proposal.no_vote.holders, &sender);
+            proposal.no_vote.count = proposal.no_vote.count - *voting_power;
         } else if (current_vote_choice == VFor) {
-            vec_set::remove(&mut proposal.for.holders, &tx_context::sender(ctx));
-            proposal.for.count = proposal.for.count - 1;
+            vec_set::remove(&mut proposal.for.holders, &sender);
+            proposal.for.count = proposal.for.count - *voting_power;
         } else if (current_vote_choice == VAgainst) {
-            vec_set::remove(&mut proposal.against.holders, &tx_context::sender(ctx));
-            proposal.against.count = proposal.against.count - 1;
+            vec_set::remove(&mut proposal.against.holders, &sender);
+            proposal.against.count = proposal.against.count - *voting_power;
         } else if (current_vote_choice == VAbstain) {
-            vec_set::remove(&mut proposal.abstain.holders, &tx_context::sender(ctx));
-            proposal.abstain.count = proposal.abstain.count - 1;
+            vec_set::remove(&mut proposal.abstain.holders, &sender);
+            proposal.abstain.count = proposal.abstain.count - *voting_power;
         } else {
             abort EUnxpectedError
         };
         // Updating current votes
         if (vote_choice == VFor) {
-            vec_set::insert(&mut proposal.no_vote.holders, tx_context::sender(ctx));
-            proposal.for.count = proposal.for.count + 1;
+            vec_set::insert(&mut proposal.no_vote.holders, sender);
+            proposal.for.count = proposal.for.count + *voting_power;
         } else if (vote_choice == VAgainst) {
-            vec_set::insert(&mut proposal.against.holders, tx_context::sender(ctx));
-            proposal.against.count = proposal.against.count + 1;
+            vec_set::insert(&mut proposal.against.holders, sender);
+            proposal.against.count = proposal.against.count + *voting_power;
         } else if (vote_choice == VAbstain) {
-            vec_set::insert(&mut proposal.abstain.holders, tx_context::sender(ctx));
-            proposal.abstain.count = proposal.abstain.count + 1;
+            vec_set::insert(&mut proposal.abstain.holders, sender);
+            proposal.abstain.count = proposal.abstain.count + *voting_power;
         } else {
             abort ENonExistingAction
         }
     }
 
-    // public fun end_proposal(proposal: &mut Proposal, address_list: Dict<address, u8>) {
-    //     proposal
-    // }
-
-    public fun delegate(governance: &mut Governance, delegatee: address, ctx: &mut TxContext) {
-        assert!(table::borrow(&governance.delegated_to, delegatee) == &delegatee, 0);
-        assert!(table::borrow(&governance.delegated_to, tx_context::sender(ctx)) == &tx_context::sender(ctx), 0);
-        table::remove(&mut governance.delegated_to, tx_context::sender(ctx));
-        table::add(&mut governance.delegated_to, tx_context::sender(ctx), delegatee);
-    }
-
-    /// Helper Functions
-    fun update_voting_power(governance: &Governance, proposal: &mut Proposal) {
-        let keys = dict::get_keys(&proposal.voting_power);
-        while(!vector::is_empty(&keys)) {
-            let address = vector::pop_back(&mut keys);
-            let power = dict::borrow(&proposal.voting_power, address);
-            let delegatee = table::borrow(&governance.delegated_to, address);
-            let delegatee_current_power = dict::borrow(&proposal.voting_power, address);
-            let updated_delegatee_current_power: u8 = *power + *delegatee_current_power;
-            // update delegatee vote power
-            dict::remove(&mut proposal.voting_power, *delegatee);
-            dict::add(&mut proposal.voting_power, *delegatee, updated_delegatee_current_power);
+    // this one need check refund how its done
+    public fun end_proposal(proposal: &mut Proposal, project: &mut Project) {
+        assert!(proposal.type == SActive, EInvalidAction);
+        // let total_casted_votes = tally_votes(proposal);
+        if (proposal.for.count > proposal.against.count) {
+            proposal.status = SSuccess;
+            if (proposal.type == PAdjustment) {
+                ino::adjust_tap_rate(project, proposal.proposed_tap_rate);
+            }
+            // } else if (proposal.type == PRefund){
+            //
+            // }
+        } else {
+            proposal.status = SFailure;
         };
     }
 
-    /// Getters
-    public fun get_governance_proposals_length(governance: &Governance): u64 {
-        dict::length(&governance.proposal_data)
+    public fun delegate(governance: &mut Governance, delegatee: address, ctx: &mut TxContext) {
+        let sender = tx_context::sender(ctx);
+        assert!(table::borrow(&governance.delegated_to, sender) != &delegatee, ERepeatedDelegation);
+        if (sender != delegatee) {
+            assert!(table::borrow(&governance.delegated_to, delegatee) == &delegatee, EInvalidDelegatee);
+        };
+        *table::borrow_mut(&mut governance.delegated_to, sender) = delegatee;
     }
 
+    /// Helper Functions
+    fun tally_votes(proposal: &mut Proposal): u64 {
+        let for_holders = vec_set::into_keys(proposal.for.holders);
+        let against_holders = vec_set::into_keys(proposal.against.holders);
+        let abstain_holders = vec_set::into_keys(proposal.abstain.holders);
+
+        while(!vector::is_empty(&for_holders)){
+            let address = vector::pop_back(&mut for_holders);
+            let voting_power = dict::borrow(&proposal.voting_power, address);
+            proposal.for.count = proposal.for.count + *voting_power;
+        };
+        while(!vector::is_empty(&against_holders)){
+            let address = vector::pop_back(&mut against_holders);
+            let voting_power = dict::borrow(&proposal.voting_power, address);
+            proposal.against.count = proposal.against.count + *voting_power;
+        };
+        while(!vector::is_empty(&abstain_holders)){
+            let address = vector::pop_back(&mut abstain_holders);
+            let voting_power = dict::borrow(&proposal.voting_power, address);
+            proposal.abstain.count = proposal.abstain.count + *voting_power;
+        };
+        let total_votes_casted: u64 = proposal.for.count + proposal.against.count + proposal.abstain.count;
+        total_votes_casted
+    }
+
+    /// Getters
     public fun address_vote_choice(proposal: &Proposal, voter: &address): u8 {
         if (vec_set::contains(&proposal.no_vote.holders, voter)) {
             return VNoVote

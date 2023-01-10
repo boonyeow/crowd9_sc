@@ -305,6 +305,9 @@ module crowd9_sc::ino{
         transfer::transfer(coin::take(&mut campaign.balance, refund_amount, ctx), contributor);
     }
 
+    public fun adjust_tap_rate(project: &mut Project, adjusted_tap_rate: u64) {
+        project.tap_rate = adjusted_tap_rate;
+    }
 
     #[test_only]
     public fun get_campaign_status(campaign: &Campaign): u8{
