@@ -101,7 +101,7 @@ module crowd9_sc::ino{
         campaign_id: ID,
         funding_goal: u64,
         funding_balance: u64,
-        project_created: ID
+        project_created: ID,
     }
 
     struct CampaignFailure has copy, drop{
@@ -241,19 +241,19 @@ module crowd9_sc::ino{
         {
             let project_id = object::new(ctx);
 
-            event::emit(CampaignSuccess{
-                campaign_id: object::id(campaign),
-                funding_goal: campaign.funding_goal,
-                funding_balance: balance::value(&campaign.balance),
-                project_created: object::uid_to_inner(&project_id)
-            });
-
             campaign.status = SSuccess;
 
             let nft_ids = vec_set::empty<ID>();
             let metadata = option::extract(&mut campaign.project_metadata);
 
             airdrop(campaign, &mut metadata, nft_ids, object::uid_to_inner(&project_id), ctx);
+            
+            event::emit(CampaignSuccess{
+                campaign_id: object::id(campaign),
+                funding_goal: campaign.funding_goal,
+                funding_balance: balance::value(&campaign.balance),
+                project_created: object::uid_to_inner(&project_id),
+            });
 
             let balance_value = balance::value(&campaign.balance);
             let balance = coin::into_balance(coin::take(&mut campaign.balance, balance_value, ctx));
@@ -267,7 +267,7 @@ module crowd9_sc::ino{
                 metadata,
                 owner_cap_id: campaign.owner_cap_id,
             };
-
+            // rmb to call gov contract to create governance object and share it
             transfer::share_object(project);
         }
     }
