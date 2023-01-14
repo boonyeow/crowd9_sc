@@ -1,5 +1,5 @@
 module crowd9_sc::governance {
-    use crowd9_sc::ino::{Self, Project};
+    use crowd9_sc::nft::{Self, Project};
     use crowd9_sc::balance::{Self as c9_balance};
     use crowd9_sc::dict::{Self, Dict};
     use sui::transfer;
@@ -95,7 +95,7 @@ module crowd9_sc::governance {
             for: Vote { holders: vec_set::empty<address>(), count: 0 },
             against: Vote { holders: vec_set::empty<address>(), count: 0 },
             abstain: Vote { holders: vec_set::empty<address>(), count: 0 },
-            no_vote: Vote { holders: address_list, count: c9_balance::supply_value(ino::get_supply(project)) },
+            no_vote: Vote { holders: address_list, count: c9_balance::supply_value(nft::project_supply(project)) },
             voting_power,
         };
         dict::add(&mut governance.proposal_data,object::uid_to_address(&proposal.id), proposal);
@@ -146,7 +146,7 @@ module crowd9_sc::governance {
         if (proposal.for.count > proposal.against.count) {
             proposal.status = SSuccess;
             if (proposal.type == PAdjustment) {
-                ino::adjust_tap_rate(project, proposal.proposed_tap_rate);
+                nft::adjust_tap_rate(project, proposal.proposed_tap_rate);
             }
             // } else if (proposal.type == PRefund){
             //

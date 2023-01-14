@@ -6,7 +6,8 @@ module crowd9_sc::ownerlist_oracle_tests {
     use sui::transfer::{Self};
     use crowd9_sc::dict;
     use crowd9_sc::governance::{Self, Governance};
-    use crowd9_sc::ino::{Self, Campaign, OwnerCap, Project};
+    use crowd9_sc::ino::{Self, Campaign, OwnerCap};
+    use crowd9_sc::nft::{Project};
     use std::debug;
     use sui::object::{Self, ID};
     use crowd9_sc::ownerlist_oracle::{Self, OwnerList, AuthorityCap, CapabilityBook, AdminCap};

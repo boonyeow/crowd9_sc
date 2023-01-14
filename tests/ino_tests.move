@@ -5,7 +5,8 @@ module crowd9_sc::ino_tests {
     use sui::coin::{Self, Coin};
     use sui::transfer::{Self};
     use sui::balance;
-    use crowd9_sc::ino::{Self, Campaign, OwnerCap, Project, Nft};
+    use crowd9_sc::ino::{Self, Campaign, OwnerCap};
+    use crowd9_sc::nft::{Self, Project, Nft};
     use crowd9_sc::dict;
     use crowd9_sc::balance::{Self as c9_balance};
     use std::vector;
@@ -305,8 +306,8 @@ module crowd9_sc::ino_tests {
 
         ts::next_tx(scenario, ADMIN);
         let project = ts::take_shared<Project>(scenario);
-        let project_balance = ino::get_project_balance(&project);
-        let supply = ino::get_supply(&project);
+        let project_balance = nft::project_balance(&project);
+        let supply = nft::project_supply(&project);
         assert!(ino::get_campaign_status(&campaign) == 2, 0);
         assert!(c9_balance::supply_value(supply) == (1000000 + 100), 1);
         assert!(balance::value(project_balance) == (1000000 + 100), 2);
@@ -314,7 +315,7 @@ module crowd9_sc::ino_tests {
         {
             // check bob
             let nft: Nft = ts::take_from_address(scenario, BOB);
-            let balance = ino::get_balance(&nft);
+            let balance = nft::nft_balance(&nft);
             assert!(c9_balance::value(balance) == 1000000, 3);
             ts::return_to_address(BOB, nft);
         };
@@ -322,7 +323,7 @@ module crowd9_sc::ino_tests {
         {
             // check carol
             let nft: Nft = ts::take_from_address(scenario, CAROL);
-            let balance = ino::get_balance(&nft);
+            let balance = nft::nft_balance(&nft);
             assert!(c9_balance::value(balance) == 100, 4);
             ts::return_to_address(CAROL, nft);
         };

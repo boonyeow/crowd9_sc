@@ -1,5 +1,6 @@
 module crowd9_sc::balance {
     friend crowd9_sc::ino;
+    friend crowd9_sc::nft;
 
     /// For when splitting Balance with 0 value
     const EZeroNotAllowed: u64 = 0;

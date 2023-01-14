@@ -10,9 +10,10 @@ module crowd9_sc::ino{
     // use std::debug;
     use sui::event;
     use sui::vec_set::{Self, VecSet};
-    use sui::url::{Self, Url};
-    use crowd9_sc::balance::{Self as c9_balance, NftSupply, NftBalance};
+    // use sui::url::{Self, Url};
+    use crowd9_sc::balance::{Self as c9_balance/*, NftSupply , NftBalance*/};
     use crowd9_sc::dict::{Self, Dict};
+    use crowd9_sc::nft::{Self, ProjectMetadata /*, Nft*/};
 
 
     /// ======= Constants =======
@@ -49,28 +50,7 @@ module crowd9_sc::ino{
         owner_cap_id: ID,
     }
 
-    struct ProjectMetadata has store{
-        name: vector<u8>,
-        description: Url,
-        creator: address,
-        supply: NftSupply,
-    }
 
-    struct Project has key, store{
-        id: UID,
-        nft_ids: VecSet<ID>,
-        last_withdrawn_timestamp: u64,
-        tap_rate: u64,
-        balance: Balance<SUI>,
-        metadata: ProjectMetadata,
-        owner_cap_id: ID
-    }
-
-    struct Nft has key, store{
-        id: UID,
-        project_id: ID,
-        balance: NftBalance
-    }
 
     struct Certificate has key{
         id: UID,
@@ -125,11 +105,7 @@ module crowd9_sc::ino{
     public entry fun create_campaign(name: vector<u8>, description: vector<u8>, funding_goal: u64, price_per_nft: u64, duration: u64, proposed_tap_rate: u64, ctx: &mut TxContext){
         let creator = tx_context::sender(ctx);
         let owner_cap = OwnerCap { id: object::new(ctx) };
-        let metadata = ProjectMetadata {
-            name,
-            description: url::new_unsafe_from_bytes(description),
-            creator,
-            supply: c9_balance::create_supply()};
+        let metadata = nft::create_metadata(name, description, creator);
 
         let campaign = Campaign{
             id: object::new(ctx),
@@ -189,9 +165,9 @@ module crowd9_sc::ino{
         // TODO - Update timestamp once released
         assert!(campaign.status == SActive, EDisallowedAction);
 
-        let metadata = option::borrow_mut(&mut campaign.project_metadata);
+        let metadata = option::borrow(&campaign.project_metadata);
         let contributor = tx_context::sender(ctx);
-        assert!(metadata.creator != contributor, EUnauthorizedUser);
+        assert!(nft::project_creator(metadata) != contributor, EUnauthorizedUser);
 
         let paid_value = coin::value(&paid);
         let to_receive = campaign.price_per_nft * quantity;
@@ -258,15 +234,8 @@ module crowd9_sc::ino{
             let balance_value = balance::value(&campaign.balance);
             let balance = coin::into_balance(coin::take(&mut campaign.balance, balance_value, ctx));
 
-            let project = Project {
-                id: project_id,
-                nft_ids,
-                last_withdrawn_timestamp: 0,  // TODO - Update timestamp once released
-                tap_rate: campaign.proposed_tap_rate,
-                balance,
-                metadata,
-                owner_cap_id: campaign.owner_cap_id,
-            };
+            let project = nft::create_project(project_id, nft_ids, campaign.proposed_tap_rate, balance, metadata, campaign.owner_cap_id);
+
             // rmb to call gov contract to create governance object and share it
             transfer::share_object(project);
         }
@@ -279,11 +248,9 @@ module crowd9_sc::ino{
             let balance = dict::remove(&mut campaign.contributors, contributor);
             let id = object::new(ctx);
             vec_set::insert(&mut nft_ids, object::uid_to_inner(&id));
-            transfer::transfer(Nft{
-                id,
-                project_id,
-                balance: c9_balance::increase_supply(&mut metadata.supply, balance)
-            }, contributor);
+
+            let nft = nft::mint(id, project_id, c9_balance::increase_supply(nft::project_supply_mut(metadata), balance));
+            transfer::transfer(nft, contributor);
         };
     }
 
@@ -305,9 +272,7 @@ module crowd9_sc::ino{
         transfer::transfer(coin::take(&mut campaign.balance, refund_amount, ctx), contributor);
     }
 
-    public fun adjust_tap_rate(project: &mut Project, adjusted_tap_rate: u64) {
-        project.tap_rate = adjusted_tap_rate;
-    }
+
 
     #[test_only]
     public fun get_campaign_status(campaign: &Campaign): u8{
@@ -317,20 +282,5 @@ module crowd9_sc::ino{
     #[test_only]
     public fun get_contributors(campaign: &Campaign): &Dict<address, u64>{
         &campaign.contributors
-    }
-
-    #[test_only]
-    public fun get_balance(nft: &Nft): &NftBalance{
-        &nft.balance
-    }
-
-    #[test_only]
-    public fun get_project_balance(project: &Project): &Balance<SUI>{
-        &project.balance
-    }
-
-    /// Getters
-    public fun get_supply(project: &Project): &NftSupply{
-        &project.metadata.supply
     }
 }
