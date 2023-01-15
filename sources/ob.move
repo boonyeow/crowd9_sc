@@ -21,23 +21,25 @@ module crowd9_sc::ob{
 
     struct CLOB has key, store{
         id: UID,
-        asks: CB<vector<Ask>>,
-        bids: CB<vector<Bid>>,
-        orders: Table<address, Orders>,
+        asks: CB<OO<Ask>>,
+        bids: CB<OO<Bid>>,
     }
 
-    struct Orders has copy, drop, store{
-        asks: vector<ID>,
-        bids: vector<ID>
+    struct OO<T> has store{
+        // OO - Open orders
+        total_volume: u64,
+        orders: vector<T>
     }
 
-    struct Ask has store{
+    struct Ask has key, store{
+        id:UID,
         seller: address,
         price: u64,
         nft: Nft
     }
 
-    struct Bid has store{
+    struct Bid has key, store{
+        id: UID,
         buyer: address,
         price: u64,
         amount: u64, // nfts to buy
@@ -52,11 +54,7 @@ module crowd9_sc::ob{
     }
 
     public(friend) entry fun create_ob(project_id: ID, market: &mut Market, ctx: &mut TxContext){
-        let clob = CLOB { id: object::new(ctx),
-            asks: cb::empty(),
-            bids: cb::empty(),
-            orders: table::new(ctx),
-        };
+        let clob = CLOB { id: object::new(ctx), asks: cb::empty(), bids: cb::empty() };
 
         table::add(&mut market.data, project_id, object::id(&clob));
         transfer::share_object(clob);
@@ -64,81 +62,124 @@ module crowd9_sc::ob{
 
     public entry fun create_ask(clob: &mut CLOB, project: Project, nft: Nft, price: u64, ctx: &mut TxContext){
         let seller = tx_context::sender(ctx);
-        let bids = &mut clob.bids;
+        let oo_bids = &mut clob.bids;
         let to_fill = nft::nft_value(&nft);
 
-        // TODO: keep track of bids/asks total_volume
-
-        while(cb::length(&clob.bids) > 0 && cb::max_key(&clob.bids) > price){
+        let bids_to_fill = vector::empty();
+        // While there are open bids, loop over all of them
+        while (cb::length(oo_bids) > 0) {
+            let to_destroy_OO = false;
             let current_max_bid = cb::max_key(&clob.bids);
-
-
-            if(!(current_max_bid >= price && to_fill > 0)) {
+            // Check if current max bid offers an amount lower than asking price
+            // OR
+            // if asking amount is all filled
+            if (current_max_bid < price || to_fill <= 0) {
                 break;
             };
 
-            let price_level = cb::borrow_mut(bids, current_max_bid);
-            let consolidated_balance = balance::zero();
+            let price_level = cb::borrow_mut(oo_bids, current_max_bid);
 
-            // Iterate over bids at current price_level, FIFO
-            while(vector::length(price_level) > 0){
-                // TODO: Change to separate function
-                let current_bid = vector::borrow_mut(price_level, 0);
-                if(current_bid.amount > to_fill){
-                    current_bid.amount = current_bid.amount - to_fill; // Update bid amount
-
-                    balance::join(
-                        &mut consolidated_balance,
-                        balance::split(&mut current_bid.offer, (price*to_fill))
-                    );
-                    let nft_balance = nft::balance_mut(&mut nft);
-                    nft::take(&mut project, nft_balance, to_fill, ctx);
-                    to_fill = 0;
-                    transfer::transfer(nft, current_bid.buyer);
-
+            while(vector::length(&price_level.orders) > 0){
+                /*
+                got 3 cases,
+                first one is if total volume at price point A is < to_fill,
+                second is if current level we dk where the shit at + EXACT match for to_fill
+                (price point=80, bids be like 10 + 20 + 30 + 40, and ask is exactly 30)
+                third is if total_volume > to_fill, then borrow mut
+                (price point=80, bids be like 10 + 20 + 30 + 40, and ask is 31 or smth funny)
+                */
+                if(to_fill >= price_level.total_volume) {
+                    vector::append(&mut bids_to_fill, price_level.orders);
+                    to_fill = to_fill - price_level.total_volume;
+                    to_destroy_OO = true;
                 } else {
-                    let removed_bid = vector::remove(price_level, 0);
-                    to_fill = to_fill - removed_bid.amount;
-
-                    balance::join(&mut consolidated_balance, removed_bid.offer);
-
-                    if(to_fill == 0){
-                        // Ask order completely filled
-                        transfer::transfer(nft, removed_bid.buyer);
+                    let current_bid = vector::borrow_mut(&mut price_level.orders, 0);
+                    if(to_fill < current_bid.amount){
+                        current_bid.amount = current_bid.amount - to_fill;
+                        vector::push_back(&mut bids_to_fill, Bid{
+                            id: object::new(ctx),
+                            buyer: current_bid.buyer,
+                            price: current_bid.price,
+                            amount: to_fill,
+                            offer: balance::split(&mut current_bid.offer, to_fill*current_bid.price)
+                        });
+                        price_level.total_volume = price_level.total_volume - to_fill;
+                        to_fill = 0;
                         break;
-                    } ;
+                    } else {
+                        let removed_bid = vector::remove(&mut price_level.orders, 0);
+                        vector::push_back(&mut bids_to_fill, removed_bid);
 
-                    let nft_balance = nft::balance_mut(&mut nft);
-                    let to_transfer = nft::take(&mut project, nft_balance, removed_bid.amount, ctx);
-                    transfer::transfer(to_transfer, current_bid.buyer);
+                        price_level.total_volume = price_level.total_volume - removed_bid.amount;
+                        to_fill = to_fill - removed_bid.amount;
+
+                        if(to_fill == 0) {
+                            break;
+                        }
+                    }
                 }
             };
 
-            if(vector::is_empty(price_level)){
-                cb::pop(&mut clob.bids, price); // remove price_level from cb
-                // let next_max_bid = cb::max_key(&clob.bids);
-                let ask = Ask { seller, price, nft};
-                cb::insert(&mut clob.asks, price, vector::singleton(ask)); // create new ask
-            };
-
-            let value_to_transfer = balance::value(&consolidated_balance);
-            if(value_to_transfer > 0){
-                transfer::transfer(
-                    coin::take(&mut consolidated_balance, value_to_transfer, ctx),
-                    seller
-                );
-            };
+            if(to_destroy_OO){
+                let OO {total_volume:_, orders }  = cb::pop( &mut clob.bids, current_max_bid);
+                vector::destroy_empty(orders);
+            }
         };
 
-        // Order not completely filled even after executing bid orders
+        if(!vector::is_empty(&bids_to_fill)){
+            fill_bids(&mut project, bids_to_fill, &mut nft, seller, ctx);
+        };
+
+        // Proceed to create ask order if order not complete
         if(to_fill > 0){
-            let ask = Ask { seller, price, nft};
+            let id = object::new(ctx);
+            let ask = Ask {  id, seller, price, nft};
             if(cb::has_key(&clob.asks, price)){
-                let price_level = cb::borrow_mut(&mut clob.asks, price);
-                vector::push_back(price_level, ask);
+                let oo_asks = cb::borrow_mut(&mut clob.asks, price);
+                oo_asks.total_volume = oo_asks.total_volume + nft::nft_value(&nft);
+                vector::push_back(&mut oo_asks.orders, ask);
             } else {
-                cb::insert(&mut clob.asks, price, vector::singleton(ask));
+                let oo_asks = OO {
+                    total_volume: nft::nft_value(&nft),
+                    orders: vector::singleton(ask)
+                };
+                cb::insert(&mut clob.asks, price, oo_asks);
             }
         }
+    }
+
+    fun fill_bids(project: &mut Project, bids: vector<Bid>, nft: &mut Nft, seller:address, ctx: &mut TxContext){
+        let consolidated_balance = balance::zero();
+        while(!vector::is_empty(&bids)){
+            let Bid { id, buyer, price: _, amount, offer } = vector::pop_back(&mut bids);
+            object::delete(id);
+
+            balance::join(&mut consolidated_balance, offer);
+
+            let nft_balance = nft::balance_mut(nft);
+            let to_transfer = nft::take(project, nft_balance, amount, ctx);
+            transfer::transfer(to_transfer, buyer);
+        };
+
+        let consolidated_value = balance::value(&consolidated_balance);
+        transfer::transfer(coin::take(&mut consolidated_balance, consolidated_value, ctx),  seller)
+    }
+
+    public entry fun cancel_ask(clob: &mut CLOB, order_id: ID){
+        let oo_asks = &mut clob.asks;
+        // Upon creating an order, keep track of which price level it is at
+        // Approach 1 -> keep track using user-owned object i.e. each user will keep track of all orders (bid, ask) created
+        /*  orders:{ buy:{ order_id=1 : price=80 }, sell:{} }
+         *  if order gets filled, user-owned object will no longer be accurate but does it matter?
+         *  on frontend side, when we iterate over the object, if order_id is not inside OO -> we can safely assume its filled?
+         *  this way we can have tx history as well
+         *
+         */
+        // Approach 2 -> keep track using shared object
+        /* ID->price = k=ID,v=price ; ID maps to price
+         * orders: {buy:{ address1=xxxx: vector[ID->price, ID->price] }
+         *
+         */
+
     }
 }
