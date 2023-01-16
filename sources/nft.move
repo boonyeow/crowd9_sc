@@ -108,6 +108,25 @@ module crowd9_sc::nft {
         Nft{ id, project_id, balance: c9_balance::split(balance, value)}
     }
 
+    /// Consumes Nft `n` and add its value to `self`
+    /// Aborts if `n.value + self.value > U64_MAX`
+    public(friend) fun join(self: &mut Nft, n: Nft, project: &mut Project){
+        let Nft { id, project_id:_, balance } = n;
+        let nft_ids = &mut project.nft_ids;
+        vec_set::remove(nft_ids, object::uid_as_inner(&id));
+        object::delete(id);
+        c9_balance::join(&mut self.balance, balance);
+    }
+
+    // TODO spec -> below is a draft
+    // spec join {
+    //     let before_val = self.balance.value;
+    //     let post after_val = self.balance.value;
+    //     ensures after_val == before_val + c.balance.value;
+    //
+    //     aborts_if before_val + c.balance.value > MAX_U64;
+    // }
+
 
     // TODO WIP
     fun from_balance(project_id: ID, balance: NftBalance, ctx: &mut TxContext): Nft{
