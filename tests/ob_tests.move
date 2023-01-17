@@ -2,7 +2,7 @@
 
 module crowd9_sc::ob_tests{
     use crowd9_sc::ino::{Self, Campaign, OwnerCap};
-    use crowd9_sc::nft::{Project};
+    use crowd9_sc::nft::{Project, Nft};
     // use crowd9_sc::my_module::{Self, Card};
     use crowd9_sc::ob::{Self, Market, CLOB};
     use std::debug;
@@ -21,7 +21,7 @@ module crowd9_sc::ob_tests{
         debug::print(&b"hi");
     }
 
-    fun init_ob(scenario: &mut Scenario): (Project, Market, CLOB){
+    fun init_campaign(scenario: &mut Scenario): (Campaign, OwnerCap){
         ts::next_tx(scenario, ADMIN);
         ino::create_campaign(b"The One", b"Description", 100, 1, 1, 20, ts::ctx(scenario));
         ts::next_tx(scenario, ADMIN);
@@ -42,10 +42,39 @@ module crowd9_sc::ob_tests{
 
         ts::next_tx(scenario, ADMIN);
         ino::end_campaign(&mut campaign, ts::ctx(scenario));
+        (campaign, owner_cap)
+    }
 
+    fun init_ob(scenario: &mut Scenario): (Project, Market, CLOB){
+        ts::next_tx(scenario, ADMIN);
+        ob::init_test(ts::ctx(scenario));
 
         ts::next_tx(scenario, ADMIN);
         let market = ts::take_shared<Market>(scenario);
+        debug::print(&market);
+        debug::print(&market);
+        debug::print(&market);
+
+        ts::next_tx(scenario, ADMIN);
+        ino::create_campaign(b"The One", b"Description", 100, 1, 1, 20, ts::ctx(scenario));
+        ts::next_tx(scenario, ADMIN);
+        let campaign = ts::take_shared<Campaign>(scenario);
+        let owner_cap = ts::take_from_address<OwnerCap>(scenario, ADMIN);
+
+        ts::next_tx(scenario, ADMIN);
+        ino::start_campaign(&mut campaign, &owner_cap, ts::ctx(scenario));
+
+        ts::next_tx(scenario, ALICE);
+        ino::contribute(&mut campaign, 100, take_coins(scenario, ALICE, 100), ts::ctx(scenario));
+
+        ts::next_tx(scenario, BOB);
+        ino::contribute(&mut campaign, 53, take_coins(scenario, BOB, 53), ts::ctx(scenario));
+
+        ts::next_tx(scenario, CAROL);
+        ino::contribute(&mut campaign, 23, take_coins(scenario, CAROL, 23), ts::ctx(scenario));
+
+        ts::next_tx(scenario, ADMIN);
+        ino::end_campaign(&mut campaign, ts::ctx(scenario));
 
         ts::next_tx(scenario, ADMIN);
         ts::return_to_address(ADMIN, owner_cap);
@@ -78,8 +107,9 @@ module crowd9_sc::ob_tests{
         split_coin
     }
 
-    use sui::table::{Self, Table};
+    use sui::table::{/*Self,*/ Table};
     use sui::object::{ID};
+
     struct TestStruct {
         test: Table<ID, ID>
     }
@@ -91,23 +121,30 @@ module crowd9_sc::ob_tests{
         let coins_to_mint = 1000;
         init_test_accounts(scenario, coins_to_mint);
 
-        ts::next_tx(scenario, ADMIN);
-        ob::init_test(ts::ctx(scenario));
-
         let (project, market, clob) = init_ob(scenario);
+        ts::next_tx(scenario, ALICE);
+        {
+            let nft = ts::take_from_address<Nft>(scenario, ALICE); //own 100
+            ob::create_ask(&mut clob, &mut project, nft,  100,5, ts::ctx(scenario));
 
-        debug::print(&market);
-        let tese = TestStruct{ test: table::new(ts::ctx(scenario))};
-        debug::print(&tese);
-        debug::print(&tese);
-        let TestStruct{ test } = tese;
-        table::destroy_empty(test);
+            let nft = ts::take_from_address<Nft>(scenario, BOB); //own 53
+            ob::create_ask(&mut clob, &mut project, nft, 53, 3, ts::ctx(scenario));
 
-        // debug::print(&project);
-        ts::return_shared(market);
+            let nft = ts::take_from_address<Nft>(scenario, CAROL); //own 23
+            ob::create_ask(&mut clob, &mut project, nft, 23,2, ts::ctx(scenario));
+        };
+        debug::print(&b"0000000000000000000000000000000000000000000");
+        debug::print(&clob);
+        debug::print(&b"0000000000000000000000000000000000000000000");
+        ts::next_tx(scenario, ADMIN);
+        {
+            ob::create_bid(&mut clob, &mut project, take_coins<SUI>(scenario, ADMIN, 3*76), 76, 3, ts::ctx(scenario));
+        };
+        debug::print(&clob);
+
         ts::return_shared(project);
+        ts::return_shared(market);
         ts::return_shared(clob);
         ts::end(scenario_val);
     }
-
 }

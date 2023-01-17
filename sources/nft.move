@@ -57,6 +57,14 @@ module crowd9_sc::nft {
         }
     }
 
+    /// Destroy an nft with value zero
+    public(friend) fun destroy_zero(project: &mut Project, n: Nft){
+        let Nft { id, project_id:_, balance} = n;
+        vec_set::remove(&mut project.nft_ids, object::uid_as_inner(&id));
+        object::delete(id);
+        c9_balance::destroy_zero(balance);
+    }
+
     /// Setters for project
     public(friend) fun adjust_tap_rate(project: &mut Project, adjusted_tap_rate: u64) {
         project.tap_rate = adjusted_tap_rate;

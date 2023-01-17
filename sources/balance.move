@@ -11,6 +11,9 @@ module crowd9_sc::balance {
     /// For when trying to withdraw more than there is.
     const ENotEnough: u64 = 2;
 
+    /// For when trying to destroy a non-zero balance.
+    const ENonZero: u64 = 3;
+
     struct NftSupply has store{
         value: u64
     }
@@ -68,5 +71,11 @@ module crowd9_sc::balance {
         aborts_if self.value < value with ENotEnough;
         ensures self.value == old(self.value) - value;
         ensures result.value == value;
+    }
+
+    /// Destroy a zero `Balance`.
+    public(friend) fun destroy_zero(balance: NftBalance){
+        assert!(balance.value == 0, ENonZero);
+        let NftBalance { value: _} = balance;
     }
 }
