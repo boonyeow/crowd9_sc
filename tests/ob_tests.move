@@ -5,6 +5,7 @@ module crowd9_sc::ob_tests{
     use crowd9_sc::nft::{Project, Nft};
     // use crowd9_sc::my_module::{Self, Card};
     use crowd9_sc::ob::{Self, Market, CLOB};
+    use crowd9_sc::crit_bit_u64::{Self as cb};
     use std::debug;
     use sui::coin::{Self, Coin};
     use sui::sui::SUI;
@@ -107,11 +108,24 @@ module crowd9_sc::ob_tests{
         split_coin
     }
 
-    use sui::table::{/*Self,*/ Table};
-    use sui::object::{ID};
+    fun init_ask(scenario: &mut Scenario, clob: &mut CLOB, project: &mut Project, user:address, price:u64, amount:u64){
+        let nft = ts::take_from_address<Nft>(scenario, user);
+        assert!(!cb::has_key(ob::get_asks_tree(clob), price), 0);
+        ob::create_ask(clob, project, nft, amount, price, ts::ctx(scenario));
+        assert!(cb::has_key(ob::get_asks_tree(clob), price), 0);
+        let (total_volume, orders) = ob::get_OO(ob::get_asks_tree(clob), price);
+        assert!(total_volume == amount, 0);
+        assert!(ob::get_ask_volume(orders) == amount, 0);
+    }
 
-    struct TestStruct {
-        test: Table<ID, ID>
+    fun init_bid(scenario: &mut Scenario, clob: &mut CLOB, project: &mut Project, user:address, paid_amount:u64, price:u64,  bid_amount:u64){
+        let coins = take_coins<SUI>(scenario, user, paid_amount);
+        assert!(!cb::has_key(ob::get_bids_tree(clob), price), 0);
+        ob::create_bid(clob, project, coins, bid_amount, price, ts::ctx(scenario));
+        assert!(cb::has_key(ob::get_bids_tree(clob), price), 0);
+        let (total_volume, orders) = ob::get_OO(ob::get_bids_tree(clob), price);
+        assert!(total_volume == bid_amount, 0);
+        assert!(ob::get_bid_volume(orders) == bid_amount, 0);
     }
 
     #[test]
@@ -123,23 +137,16 @@ module crowd9_sc::ob_tests{
 
         let (project, market, clob) = init_ob(scenario);
         ts::next_tx(scenario, ALICE);
-        {
-            let nft = ts::take_from_address<Nft>(scenario, ALICE); //own 100
-            ob::create_ask(&mut clob, &mut project, nft,  100,5, ts::ctx(scenario));
 
-            let nft = ts::take_from_address<Nft>(scenario, BOB); //own 53
-            ob::create_ask(&mut clob, &mut project, nft, 53, 3, ts::ctx(scenario));
+        init_ask(scenario, &mut clob, &mut project, ALICE, 5, 100);
+        init_ask(scenario, &mut clob, &mut project, BOB, 3, 53);
+        init_ask(scenario, &mut clob, &mut project, CAROL, 2,23);
 
-            let nft = ts::take_from_address<Nft>(scenario, CAROL); //own 23
-            ob::create_ask(&mut clob, &mut project, nft, 23,2, ts::ctx(scenario));
-        };
-        debug::print(&b"0000000000000000000000000000000000000000000");
-        debug::print(&clob);
-        debug::print(&b"0000000000000000000000000000000000000000000");
         ts::next_tx(scenario, ADMIN);
-        {
-            ob::create_bid(&mut clob, &mut project, take_coins<SUI>(scenario, ADMIN, 3*76), 76, 3, ts::ctx(scenario));
-        };
+        ob::create_bid(&mut clob, &mut project, take_coins<SUI>(scenario, ADMIN, 3*76), 76, 3, ts::ctx(scenario));
+
+        // perform check here
+
         debug::print(&clob);
 
         ts::return_shared(project);

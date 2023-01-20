@@ -14,10 +14,16 @@ module crowd9_sc::ob{
     const MAX_BID_DEFAULT: u64 = 0;
     const MIN_ASK_DEFAULT: u64 = 0xffffffffffffffff;
 
+    const EInsufficientAmountSupplied:u64 = 0;
+
+
     const S_CANCELLED:u8 = 0;
     const S_QUEUED:u8 = 1;
-    const S_PARTIALLY_EXECUTED:u8 = 1;
-    const S_EXECUTED:u8 = 1;
+    const S_PARTIALLY_EXECUTED:u8 = 2;
+    const S_EXECUTED:u8 = 3;
+
+    const BUY_ORDER:u8 = 0;
+    const SELL_ORDER:u8 = 1;
 
     struct Market has key, store{
         id: UID,
@@ -75,6 +81,8 @@ module crowd9_sc::ob{
     }
 
     public entry fun create_bid(clob: &mut CLOB, project: &mut Project, bid_offer: Coin<SUI>, amount:u64, price: u64, ctx: &mut TxContext){
+        assert!(coin::value(&bid_offer) == price*amount, EInsufficientAmountSupplied);
+
         let bids_tree = &mut clob.bids;
         let registry = &mut clob.registry;
         let buyer = tx_context::sender(ctx);
@@ -140,7 +148,6 @@ module crowd9_sc::ob{
                     bid_amount = bid_amount - removed_ask.amount;
                     vector::push_back(&mut asks_to_fill, removed_ask);
                 } else {
-                    current_ask.amount = current_ask.amount - bid_amount;
                     let split_ask = Ask {
                         id: object::new(ctx),
                         seller: current_ask.seller,
@@ -149,6 +156,7 @@ module crowd9_sc::ob{
                         nft: nft::take(project, nft::balance_mut(&mut current_ask.nft), bid_amount, ctx)
                     };
 
+                    current_ask.amount = current_ask.amount - bid_amount;
                     vector::push_back(&mut asks_to_fill, split_ask);
                     bid_amount = 0;
                 };
@@ -332,5 +340,43 @@ module crowd9_sc::ob{
 
         table::add(&mut market.data, project_id, object::id(&clob));
         transfer::share_object(clob);
+    }
+
+    #[test_only]
+    public fun get_asks_tree(clob: &CLOB): &CB<OO<Ask>>{
+        &clob.asks
+    }
+
+    #[test_only]
+    public fun get_bids_tree(clob: &CLOB): &CB<OO<Bid>>{
+        &clob.bids
+    }
+
+    #[test_only]
+    public fun get_OO<T>(orders_tree: &CB<OO<T>>, price: u64): (u64,&vector<T>){
+        let open_orders: &OO<T>  = cb::borrow(orders_tree, price);
+        (open_orders.total_volume, &open_orders.orders)
+    }
+
+    #[test_only]
+    public fun get_bid_volume(bids: &vector<Bid>): u64{
+        let volume = 0;
+        let i = 0;
+        while(i < vector::length(bids)){
+            volume = volume + vector::borrow(bids, i).amount;
+            i = i + 1;
+        };
+        volume
+    }
+
+    #[test_only]
+    public fun get_ask_volume(asks: &vector<Ask>): u64{
+        let volume = 0;
+        let i = 0;
+        while(i < vector::length(asks)){
+            volume = volume + vector::borrow(asks, i).amount;
+            i = i + 1;
+        };
+        volume
     }
 }
