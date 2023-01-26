@@ -80,6 +80,7 @@ module crowd9_sc::ob{
         transfer::share_object(clob);
     }
 
+    // use std::debug;
     public entry fun create_bid(clob: &mut CLOB, project: &mut Project, bid_offer: Coin<SUI>, amount:u64, price: u64, ctx: &mut TxContext){
         assert!(coin::value(&bid_offer) == price*amount, EInsufficientAmountSupplied);
 
@@ -100,6 +101,7 @@ module crowd9_sc::ob{
             if(cb::is_empty(&clob.asks)){
                 (vector::empty(), amount)
             } else {
+                // Asks found
                 fetch_crossed_asks(&mut clob.asks, project, price, amount, ctx)
             }
         };
@@ -137,9 +139,10 @@ module crowd9_sc::ob{
     }
 
     fun fetch_crossed_asks(asks_tree: &mut CB<OO<Ask>>, project: &mut Project, bid_price: u64, bid_amount: u64, ctx: &mut TxContext): (vector<Ask>, u64){
+        // error here
         let min_ask = cb::min_key(asks_tree);
         let asks_to_fill = vector::empty();
-        while(bid_price >= min_ask || bid_amount > 0){
+        while(bid_price >= min_ask && bid_amount > 0){
             let price_level = cb::borrow_mut(asks_tree, min_ask);
             while(bid_amount != 0){
                 let current_ask = vector::borrow_mut(&mut price_level.orders, 0);
@@ -199,8 +202,19 @@ module crowd9_sc::ob{
         let asks_tree = &mut clob.asks;
         let registry = &mut clob.registry;
         let seller = tx_context::sender(ctx);
-        let ask = Ask { id: object::new(ctx), seller, price, amount, nft };
 
+        let nft_value = nft::nft_value(&nft);
+        assert!(nft_value >= amount, 0);
+
+        if(nft_value > amount){
+            let nft_balance = nft::balance_mut(&mut nft);
+            let value_to_transfer = nft_value - amount;
+            transfer::transfer(
+                nft::take(project, nft_balance, value_to_transfer, ctx),
+                seller);
+        };
+
+        let ask = Ask { id: object::new(ctx), seller, price, amount, nft };
         table::add(registry, object::id(&ask), OrderInfo{
             parent: option::none(), // might not need anymore / check if we need to add this in during split
             owner: seller,
@@ -248,7 +262,7 @@ module crowd9_sc::ob{
         let max_bid = cb::max_key(bids_tree);
         let bids_to_fill = vector::empty();
 
-        while(ask_price <= max_bid || ask_amount > 0){
+        while(ask_price <= max_bid && ask_amount > 0){
             let price_level = cb::borrow_mut(bids_tree, max_bid);
             while(ask_amount != 0){
                 let current_bid = vector::borrow_mut(&mut price_level.orders, 0);
