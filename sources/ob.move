@@ -80,7 +80,16 @@ module crowd9_sc::ob{
         transfer::share_object(clob);
     }
 
-    // use std::debug;
+    fun add_to_oo<T>(oo: &mut OO<T>, order: T, amount: u64){
+        oo.total_volume = oo.total_volume + amount;
+        vector::push_back(&mut oo.orders, order);
+    }
+
+    fun remove_from_oo<T>(oo: &mut OO<T>, amount: u64): T{
+        oo.total_volume = oo.total_volume - amount;
+        vector::remove(&mut oo.orders, 0)
+    }
+
     public entry fun create_bid(clob: &mut CLOB, project: &mut Project, bid_offer: Coin<SUI>, amount:u64, price: u64, ctx: &mut TxContext){
         assert!(coin::value(&bid_offer) == price*amount, EInsufficientAmountSupplied);
 
@@ -115,8 +124,7 @@ module crowd9_sc::ob{
         if(bid.amount > 0){
             if(cb::has_key(bids_tree, price)){
                 let price_level = cb::borrow_mut(bids_tree, price);
-                price_level.total_volume = price_level.total_volume + amount;
-                vector::push_back(&mut price_level.orders, bid);
+                add_to_oo(price_level, bid, amount);
             } else {
                 cb::insert(bids_tree, price, OO{
                     total_volume: amount,
@@ -147,7 +155,7 @@ module crowd9_sc::ob{
             while(bid_amount != 0){
                 let current_ask = vector::borrow_mut(&mut price_level.orders, 0);
                 if(bid_amount >= current_ask.amount){
-                    let removed_ask = vector::remove(&mut price_level.orders, 0);
+                    let removed_ask = remove_from_oo(price_level, current_ask.amount);
                     bid_amount = bid_amount - removed_ask.amount;
                     vector::push_back(&mut asks_to_fill, removed_ask);
                 } else {
@@ -160,6 +168,7 @@ module crowd9_sc::ob{
                     };
 
                     current_ask.amount = current_ask.amount - bid_amount;
+                    price_level.total_volume = price_level.total_volume - bid_amount;
                     vector::push_back(&mut asks_to_fill, split_ask);
                     bid_amount = 0;
                 };
@@ -239,8 +248,7 @@ module crowd9_sc::ob{
         if(ask.amount > 0){
             if(cb::has_key(asks_tree, price)){
                 let price_level = cb::borrow_mut(asks_tree, price);
-                price_level.total_volume = price_level.total_volume + amount;
-                vector::push_back(&mut price_level.orders, ask);
+                add_to_oo(price_level, ask, amount);
             } else {
                 cb::insert(asks_tree, price, OO{
                     total_volume: amount,
@@ -267,7 +275,7 @@ module crowd9_sc::ob{
             while(ask_amount != 0){
                 let current_bid = vector::borrow_mut(&mut price_level.orders, 0);
                 if(ask_amount >= current_bid.amount){
-                    let removed_bid = vector::remove(&mut price_level.orders, 0);
+                    let removed_bid = remove_from_oo(price_level, current_bid.amount);
                     ask_amount = ask_amount - removed_bid.amount;
                     vector::push_back(&mut bids_to_fill, removed_bid);
                 } else {
