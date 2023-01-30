@@ -57,6 +57,14 @@ module crowd9_sc::nft {
         }
     }
 
+    /// Destroy an nft with value zero
+    public(friend) fun destroy_zero(project: &mut Project, n: Nft){
+        let Nft { id, project_id:_, balance} = n;
+        vec_set::remove(&mut project.nft_ids, object::uid_as_inner(&id));
+        object::delete(id);
+        c9_balance::destroy_zero(balance);
+    }
+
     /// Setters for project
     public(friend) fun adjust_tap_rate(project: &mut Project, adjusted_tap_rate: u64) {
         project.tap_rate = adjusted_tap_rate;
@@ -107,6 +115,25 @@ module crowd9_sc::nft {
         vec_set::insert(nft_ids, object::uid_to_inner(&id));
         Nft{ id, project_id, balance: c9_balance::split(balance, value)}
     }
+
+    /// Consumes Nft `n` and add its value to `self`
+    /// Aborts if `n.value + self.value > U64_MAX`
+    public(friend) fun join(self: &mut Nft, n: Nft, project: &mut Project){
+        let Nft { id, project_id:_, balance } = n;
+        let nft_ids = &mut project.nft_ids;
+        vec_set::remove(nft_ids, object::uid_as_inner(&id));
+        object::delete(id);
+        c9_balance::join(&mut self.balance, balance);
+    }
+
+    // TODO spec -> below is a draft
+    // spec join {
+    //     let before_val = self.balance.value;
+    //     let post after_val = self.balance.value;
+    //     ensures after_val == before_val + c.balance.value;
+    //
+    //     aborts_if before_val + c.balance.value > MAX_U64;
+    // }
 
 
     // TODO WIP
