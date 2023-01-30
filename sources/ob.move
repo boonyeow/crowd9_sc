@@ -145,12 +145,10 @@ module crowd9_sc::ob{
         };
     }
 
-    use std::debug;
     fun fetch_crossed_asks(asks_tree: &mut CB<OO<Ask>>, registry: &mut Table<ID,OrderInfo>, project: &mut Project, bid_price: u64, bid_amount: u64, ctx: &mut TxContext): (vector<Ask>, u64){
         let min_ask = cb::min_key(asks_tree);
         let asks_to_fill = vector::empty();
         while(bid_price >= min_ask && bid_amount > 0){
-            debug::print(&min_ask);
             let price_level = cb::borrow_mut(asks_tree, min_ask);
             while(bid_amount != 0){
                 let current_ask = vector::borrow_mut(&mut price_level.orders, 0);
@@ -212,6 +210,7 @@ module crowd9_sc::ob{
             transfer::transfer( coin::take(&mut bid.offer, price*amount, ctx), seller);
             nft::join(&mut consolidated_nft, nft, project);
         };
+
         transfer::transfer(consolidated_nft, bid.buyer);
     }
 
