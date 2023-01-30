@@ -98,7 +98,6 @@ module crowd9_sc::ob{
         let buyer = tx_context::sender(ctx);
         let offer = coin::into_balance(bid_offer);
         let bid = Bid { id: object::new(ctx), buyer, price, amount, offer };
-
         table::add(registry, object::id(&bid), OrderInfo {
             parent: option::none(),
             owner: buyer,
@@ -111,7 +110,7 @@ module crowd9_sc::ob{
                 (vector::empty(), amount)
             } else {
                 // Asks found
-                fetch_crossed_asks(&mut clob.asks, project, price, amount, ctx)
+                fetch_crossed_asks(&mut clob.asks, registry, project, price, amount, ctx)
             }
         };
 
@@ -146,11 +145,12 @@ module crowd9_sc::ob{
         };
     }
 
-    fun fetch_crossed_asks(asks_tree: &mut CB<OO<Ask>>, project: &mut Project, bid_price: u64, bid_amount: u64, ctx: &mut TxContext): (vector<Ask>, u64){
-        // error here
+    use std::debug;
+    fun fetch_crossed_asks(asks_tree: &mut CB<OO<Ask>>, registry: &mut Table<ID,OrderInfo>, project: &mut Project, bid_price: u64, bid_amount: u64, ctx: &mut TxContext): (vector<Ask>, u64){
         let min_ask = cb::min_key(asks_tree);
         let asks_to_fill = vector::empty();
         while(bid_price >= min_ask && bid_amount > 0){
+            debug::print(&min_ask);
             let price_level = cb::borrow_mut(asks_tree, min_ask);
             while(bid_amount != 0){
                 let current_ask = vector::borrow_mut(&mut price_level.orders, 0);
@@ -166,6 +166,14 @@ module crowd9_sc::ob{
                         amount: bid_amount,
                         nft: nft::take(project, nft::balance_mut(&mut current_ask.nft), bid_amount, ctx)
                     };
+                    table::add(registry, object::id(&split_ask),
+                        OrderInfo{
+                            parent: option::none(),
+                            owner: split_ask.seller,
+                            price: split_ask.price,
+                            status: S_QUEUED
+                        }
+                    );
 
                     current_ask.amount = current_ask.amount - bid_amount;
                     price_level.total_volume = price_level.total_volume - bid_amount;
@@ -235,7 +243,7 @@ module crowd9_sc::ob{
             if(cb::is_empty(&clob.bids)){
                 (vector::empty(), amount)
             } else {
-                fetch_crossed_bids(&mut clob.bids, price, amount, ctx)
+                fetch_crossed_bids(&mut clob.bids, registry, price, amount, ctx)
             }
         };
 
@@ -266,7 +274,7 @@ module crowd9_sc::ob{
         }
     }
 
-    fun fetch_crossed_bids(bids_tree: &mut CB<OO<Bid>>, ask_price: u64, ask_amount:u64, ctx: &mut TxContext): (vector<Bid>, u64){
+    fun fetch_crossed_bids(bids_tree: &mut CB<OO<Bid>>, registry: &mut Table<ID, OrderInfo>, ask_price: u64, ask_amount:u64, ctx: &mut TxContext): (vector<Bid>, u64){
         let max_bid = cb::max_key(bids_tree);
         let bids_to_fill = vector::empty();
 
@@ -287,6 +295,16 @@ module crowd9_sc::ob{
                         amount: ask_amount,
                         offer: coin::into_balance(coin::take(&mut current_bid.offer, ask_amount, ctx))
                     };
+                    table::add(registry, object::id(&split_bid),
+                        OrderInfo{
+                            parent: option::none(),
+                            owner: split_bid.buyer,
+                            price: split_bid.price,
+                            status: S_QUEUED
+                        }
+                    );
+
+                    price_level.total_volume = price_level.total_volume - ask_amount;
                     vector::push_back(&mut bids_to_fill, split_bid);
                     ask_amount = 0;
                 };
