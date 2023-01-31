@@ -126,7 +126,7 @@ module crowd9_sc::ob{
                 add_to_oo(price_level, bid, amount);
             } else {
                 cb::insert(bids_tree, price, OO{
-                    total_volume: amount,
+                    total_volume: bid.amount,
                     orders: vector::singleton(bid)
                 });
             };
@@ -148,6 +148,8 @@ module crowd9_sc::ob{
     fun fetch_crossed_asks(asks_tree: &mut CB<OO<Ask>>, registry: &mut Table<ID,OrderInfo>, project: &mut Project, bid_price: u64, bid_amount: u64, ctx: &mut TxContext): (vector<Ask>, u64){
         let min_ask = cb::min_key(asks_tree);
         let asks_to_fill = vector::empty();
+        let asks_tree_empty = cb::is_empty(asks_tree);
+
         while(bid_price >= min_ask && bid_amount > 0){
             let price_level = cb::borrow_mut(asks_tree, min_ask);
             while(bid_amount != 0){
@@ -182,10 +184,16 @@ module crowd9_sc::ob{
                 if(vector::length(&price_level.orders) == 0){
                     let OO { total_volume:_, orders} = cb::pop(asks_tree, min_ask);
                     vector::destroy_empty(orders);
-                    min_ask = cb::min_key(asks_tree);
+                    asks_tree_empty = cb::is_empty(asks_tree);
+                    if (!asks_tree_empty) {
+                        min_ask = cb::min_key(asks_tree);
+                    };
                     break
                 }
             };
+            if (asks_tree_empty){
+                break
+            }
         };
         (asks_to_fill, bid_amount)
     }
@@ -252,13 +260,14 @@ module crowd9_sc::ob{
         vector::destroy_empty(crossed_bids);
 
         ask.amount = remaining_amount;
+
         if(ask.amount > 0){
             if(cb::has_key(asks_tree, price)){
                 let price_level = cb::borrow_mut(asks_tree, price);
                 add_to_oo(price_level, ask, amount);
             } else {
                 cb::insert(asks_tree, price, OO{
-                    total_volume: amount,
+                    total_volume: ask.amount,
                     orders: vector::singleton(ask)
                 });
             }
@@ -276,6 +285,7 @@ module crowd9_sc::ob{
     fun fetch_crossed_bids(bids_tree: &mut CB<OO<Bid>>, registry: &mut Table<ID, OrderInfo>, ask_price: u64, ask_amount:u64, ctx: &mut TxContext): (vector<Bid>, u64){
         let max_bid = cb::max_key(bids_tree);
         let bids_to_fill = vector::empty();
+        let bids_tree_empty = cb::is_empty(bids_tree);
 
         while(ask_price <= max_bid && ask_amount > 0){
             let price_level = cb::borrow_mut(bids_tree, max_bid);
@@ -292,8 +302,9 @@ module crowd9_sc::ob{
                         buyer: current_bid.buyer,
                         price: current_bid.price,
                         amount: ask_amount,
-                        offer: coin::into_balance(coin::take(&mut current_bid.offer, ask_amount, ctx))
+                        offer: coin::into_balance(coin::take(&mut current_bid.offer, ask_amount*current_bid.price, ctx))
                     };
+
                     table::add(registry, object::id(&split_bid),
                         OrderInfo{
                             parent: option::none(),
@@ -309,12 +320,18 @@ module crowd9_sc::ob{
                 };
 
                 if(vector::length(&price_level.orders) == 0){
-                  let OO { total_volume:_, orders} = cb::pop(bids_tree, max_bid);
+                    let OO { total_volume:_, orders} = cb::pop(bids_tree, max_bid);
                     vector::destroy_empty(orders);
-                    max_bid = cb::max_key(bids_tree);
+                    bids_tree_empty = cb::is_empty(bids_tree);
+                    if (!bids_tree_empty) {
+                        max_bid = cb::max_key(bids_tree);
+                    };
                     break
                 }
             };
+            if (bids_tree_empty){
+                break
+            }
         };
         (bids_to_fill, ask_amount)
     }

@@ -19,6 +19,7 @@ module crowd9_sc::ob_tests{
     const BOB:address = @0xAAAB;
     const CAROL:address = @0xAAAC;
     const DAVID: address = @0xAAAD;
+    const ERIN: address = @0xAAAE;
 
     fun hello_world(){
         debug::print(&b"hi");
@@ -75,6 +76,9 @@ module crowd9_sc::ob_tests{
         ts::next_tx(scenario, CAROL);
         ino::contribute(&mut campaign, carol_qty, take_coins(scenario, CAROL, carol_qty), ts::ctx(scenario));
 
+        ts::next_tx(scenario, ERIN);
+        ino::contribute(&mut campaign, 500, take_coins(scenario, ERIN, 500), ts::ctx(scenario));
+
         ts::next_tx(scenario, ADMIN);
         ino::end_campaign(&mut campaign, ts::ctx(scenario));
 
@@ -100,6 +104,7 @@ module crowd9_sc::ob_tests{
         transfer::transfer(coin::mint_for_testing<SUI>(value, ts::ctx(scenario)), BOB);
         transfer::transfer(coin::mint_for_testing<SUI>(value, ts::ctx(scenario)), CAROL);
         transfer::transfer(coin::mint_for_testing<SUI>(value, ts::ctx(scenario)), DAVID);
+        transfer::transfer(coin::mint_for_testing<SUI>(value, ts::ctx(scenario)), ERIN);
     }
 
     fun take_coins<T: drop>(scenario: &mut Scenario, user:address, amount: u64) : Coin<T>{
@@ -130,15 +135,16 @@ module crowd9_sc::ob_tests{
 
     fun init_bids(scenario: &mut Scenario, clob: &mut CLOB, project: &mut Project){
         /*
-       // Initialized Bids
-       Bids:{
-           price_level: {
-               OO(price=7, total_volume=9): [Bid(ALICE,3), Bid(BOB,6)],
-               OO(price=6, total_volume=1): [Bid(CAROL,1)],
-               OO(price=5, total_volume=10): [Bid(ALICE, 5), Bid(ALICE, 5)],
-           }
-       }
-       */
+        // Initialized Bids NEW
+        Bids:{
+            price_level: {
+                OO(price=7, total_volume=11): [Bid(ALICE, 3), Bid(BOB, 6), Bid(ALICE, 2)],
+                OO(price=6, total_volume=2): [Bid(CAROL, 2)],
+                OO(price=5, total_volume=10): [Bid(ALICE, 5), Bid(ALICE, 5)],
+            }
+        }
+        */
+
         // Clean State
         let cumulative_volume_at_7 = 0;
         let cumulative_volume_at_6= 0;
@@ -179,15 +185,23 @@ module crowd9_sc::ob_tests{
         // Create bid where price_level=6
         {
             let price = 6;
-            let amount = 1;
+            let amount = 2;
             create_new_bid(scenario, clob, project, CAROL, cumulative_volume_at_6, price*amount, price, amount, true, 1);
             cumulative_volume_at_6 = cumulative_volume_at_6 + amount;
         };
 
+        // Create bid where price_level=7
+        {
+            let price = 7;
+            let amount = 2;
+            create_new_bid(scenario, clob, project, ALICE, cumulative_volume_at_7, price*amount, price, amount, false, 3);
+            cumulative_volume_at_7 = cumulative_volume_at_7 + amount;
+        };
+
         // sanity check
         assert!(cumulative_volume_at_5 == 10, 0);
-        assert!(cumulative_volume_at_6 == 1, 0);
-        assert!(cumulative_volume_at_7 == 9, 0);
+        assert!(cumulative_volume_at_6 == 2, 0);
+        assert!(cumulative_volume_at_7 == 11, 0);
     }
 
     fun create_new_ask(scenario: &mut Scenario, clob: &mut CLOB, project: &mut Project, user:address, cumulative_volume: u64,  price:u64, amount:u64, is_first: bool, updated_order_count: u64){
@@ -326,7 +340,7 @@ module crowd9_sc::ob_tests{
             let bid_offer = take_coins<SUI>(scenario, DAVID, price*amount);
             assert!(!cb::has_key(ob::get_bids_tree(&clob), price), 0); // Expected: key (price) should not exist
             ob::create_bid(&mut clob, &mut project, bid_offer, amount, price, ts::ctx(scenario));
-            assert!(cb::has_key(ob::get_bids_tree(&clob), price), 0); // Expected: key (price) should not exist
+            assert!(cb::has_key(ob::get_bids_tree(&clob), price), 0); // Expected: key (price) should exist
         };
 
         ts::return_shared(project);
@@ -702,37 +716,812 @@ module crowd9_sc::ob_tests{
         ts::end(scenario_val);
     }
 
+    // 1. no_bids_crossed
+    // -> price=8, no bids get filled
     #[test]
-    fun no_bids_crossed(){
+    fun no_bids_crossed() {
+        // Base scenario, everyone starts with 1000 SUI
         let scenario_val = ts::begin(ADMIN);
         let scenario = &mut scenario_val;
         let coins_to_mint = 1000;
         init_test_accounts(scenario, coins_to_mint);
 
+        // Starting NFT qty     : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Remaining SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
         let (project, market, clob) = init_ob(scenario, 100, 53, 23);
         init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965 }
 
         // Create ask
+        ts::next_tx(scenario, CAROL);
         {
-            let price = 10;
-            let amount = 3;
+            let price = 8;
+            let amount = 10;
             let nft = ts::take_from_address<Nft>(scenario, CAROL);
-            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0); // Expected: key (price) should not exist
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
             ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
-            assert!(cb::has_key(ob::get_asks_tree(&clob), price), 0); // Expected: key (price) should exist
+            // price in asks_tree SHOULD exist
+            assert!(cb::has_key(ob::get_asks_tree(&clob), price), 0);
         };
 
         ts::next_tx(scenario, ADMIN);
-        let asks_tree = ob::get_asks_tree(&clob);
-        assert!(cb::has_key(asks_tree, 10), 0);
-        let (total_volume, orders) = ob::get_OO(asks_tree, 10);
-        assert!(total_volume == 3, 0);
-        assert!(vector::length(orders) == 1, 0);
 
+        // Verify Nft balance for CAROL
+        // Initial Nft balance = 23
+        // Ask placed at 10/each, Nft balance = 23 - 10 = 13
+        assert!(get_nft_balance(scenario, CAROL) == 13, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has a key at price level = 8
+        assert!(cb::has_key(asks_tree, 8), 0);
+        let (total_volume, orders) = ob::get_OO(asks_tree, 8);
+        // Verify total_volume for OO struct in asks tree = 10
+        assert!(total_volume == 10, 0);
+        // Verify length of orders in OO struct as 1
+        assert!(vector::length(orders) == 1, 0);
 
         ts::return_shared(project);
         ts::return_shared(market);
         ts::return_shared(clob);
         ts::end(scenario_val);
     }
+
+
+    // 2. crossed_single_bid_complete
+    // -> price=7, only Bid(ALICE,3) gets filled
+    #[test]
+    fun crossed_single_bid_complete() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965 }
+
+        // Create ask
+        ts::next_tx(scenario, CAROL);
+        {
+            let price = 7;
+            let amount = 3;
+            let nft = ts::take_from_address<Nft>(scenario, CAROL);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD NOT exist as ask is filled immediately
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 3 vol = 21
+        // After ask Nft balance = 100 + 3 = 103
+        // After ask SUI balance = 815
+        assert!(get_nft_balance(scenario, ALICE) == 103, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // -- NO CHANGE --
+        assert!(get_nft_balance(scenario, BOB) == 53, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Ask fulfilled @ 7/ea x 3 vol = 21
+        // After ask Nft balance = 23 - 3 = 20
+        // After ask SUI balance = 965 + 21 = 986
+        assert!(get_nft_balance(scenario, CAROL) == 20, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 986, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has no key at price level = 7
+        assert!(!cb::has_key(asks_tree, 7), 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has key at price level = 7
+        assert!(cb::has_key(bids_tree, 7), 0);
+        let (total_volume, orders) = ob::get_OO(bids_tree, 7);
+        // Total bid volume for OO struct at price level (7) = 11 - 3 = 8
+        // Number of bids at OO struct at price level (7) = 3 - 1 = 2
+        assert!(total_volume == 8, 0);
+        assert!(vector::length(orders) == 2, 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+
+    // 3. crossed_single_bid_partial
+    // -> price=7, Bid(ALICE, 3) to be updated to Bid(ALICE, <3)
+    #[test]
+    fun crossed_single_bid_partial() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965 }
+
+        // Create ask
+        ts::next_tx(scenario, CAROL);
+        {
+            let price = 7;
+            let amount = 1;
+            let nft = ts::take_from_address<Nft>(scenario, CAROL);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD NOT exist as ask is filled immediately
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 1 vol = 7
+        // After ask Nft balance = 100 + 1 = 101
+        // After ask SUI balance = 815
+        assert!(get_nft_balance(scenario, ALICE) == 101, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // -- NO CHANGE --
+        assert!(get_nft_balance(scenario, BOB) == 53, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Ask fulfilled @ 7/ea x 1 vol = 7
+        // After ask Nft balance = 23 - 1 = 22
+        // After ask SUI balance = 965 + 7 = 972
+        assert!(get_nft_balance(scenario, CAROL) == 22, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 972, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has no key at price level = 7
+        assert!(!cb::has_key(asks_tree, 7), 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has key at price level = 7
+        assert!(cb::has_key(bids_tree, 7), 0);
+        let (total_volume, orders) = ob::get_OO(bids_tree, 7);
+        // Total bid volume for OO struct at price level (7) = 11 - 1 = 10
+        // Number of bids at OO struct at price level (7) = 3
+        assert!(total_volume == 10, 0);
+        assert!(vector::length(orders) == 3, 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+    // 4. crossed_multiple_bids_price_level
+    // -> fill all orders where price=7, make sure its removed from tree
+    #[test]
+    fun crossed_multiple_bids_price_level() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965 }
+
+        // Create ask
+        ts::next_tx(scenario, CAROL);
+        {
+            let price = 7;
+            let amount = 11;
+            let nft = ts::take_from_address<Nft>(scenario, CAROL);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD NOT exist as ask is filled immediately
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 5 vol = 35
+        // After ask Nft balance = 100 + 5 = 105
+        // After ask SUI balance = 815
+        assert!(get_nft_balance(scenario, ALICE) == 105, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // Before ask Nft balance = 53
+        // Before ask SUI balance = 905
+        // Bid fulfilled @ 7/ea x 6 vol = 42
+        // After ask Nft balance = 53 + 6 = 59
+        // After ask SUI balance = 905
+        assert!(get_nft_balance(scenario, BOB) == 59, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Ask fulfilled @ 7/ea x 11 vol = 77
+        // After ask Nft balance = 23 - 11 = 12
+        // After ask SUI balance = 965 + 77 = 1042
+        assert!(get_nft_balance(scenario, CAROL) == 12, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 1042, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has no key at price level = 7
+        assert!(!cb::has_key(asks_tree, 7), 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has no key at price level = 7
+        assert!(!cb::has_key(bids_tree, 7), 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+    // 5. crossed_multiple_bids_complete
+    // -> price=7, Bid(ALICE,3) and Bid(BOB,6) gets filled
+    #[test]
+    fun crossed_multiple_bids_complete() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965 }
+
+        // Create ask
+        ts::next_tx(scenario, CAROL);
+        {
+            let price = 7;
+            let amount = 9;
+            let nft = ts::take_from_address<Nft>(scenario, CAROL);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD NOT exist as ask is filled immediately
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 3 vol = 21
+        // After ask Nft balance = 100 + 3 = 103
+        // After ask SUI balance = 815
+        assert!(get_nft_balance(scenario, ALICE) == 103, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // Before ask Nft balance = 53
+        // Before ask SUI balance = 905
+        // Bid fulfilled @ 7/ea x 6 vol = 42
+        // After ask Nft balance = 53 + 6 = 59
+        // After ask SUI balance = 905
+        assert!(get_nft_balance(scenario, BOB) == 59, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Ask fulfilled @ 7/ea x 9 vol = 63
+        // After ask Nft balance = 23 - 9 = 14
+        // After ask SUI balance = 965 + 63 = 1028
+        assert!(get_nft_balance(scenario, CAROL) == 14, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 1028, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has no key at price level = 7
+        assert!(!cb::has_key(asks_tree, 7), 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has no key at price level = 7
+        assert!(cb::has_key(bids_tree, 7), 0);
+        let (total_volume, orders) = ob::get_OO(bids_tree, 7);
+        // Total bid volume for OO struct at price level (7) = 11 - 9 = 2
+        // Number of bids at OO struct at price level (7) = 3 - 2 = 1
+        assert!(total_volume == 2, 0);
+        assert!(vector::length(orders) == 1, 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+    // 6. crossed_multiple_bids_partial
+    // -> price=7, Bid(ALICE,3) gets filled, Bid(BOB,6) gets partially filled
+    // -> Bid(BOB,6) to be updated to Bid(BOB, <6)
+    #[test]
+    fun crossed_multiple_bids_partial() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965 }
+
+        // Create ask
+        ts::next_tx(scenario, CAROL);
+        {
+            let price = 7;
+            let amount = 8;
+            let nft = ts::take_from_address<Nft>(scenario, CAROL);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD NOT exist as ask is filled immediately
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 3 vol = 21
+        // After ask Nft balance = 100 + 3 = 103
+        // After ask SUI balance = 815
+        assert!(get_nft_balance(scenario, ALICE) == 103, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // Before ask Nft balance = 53
+        // Before ask SUI balance = 905
+        // Bid fulfilled @ 7/ea x 5 vol = 35
+        // After ask Nft balance = 53 + 5 = 58
+        // After ask SUI balance = 905
+        assert!(get_nft_balance(scenario, BOB) == 58, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Ask fulfilled @ 7/ea x 8 vol = 56
+        // After ask Nft balance = 23 - 8 = 15
+        // After ask SUI balance = 965 + 56 = 1021
+        assert!(get_nft_balance(scenario, CAROL) == 15, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 1021, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has no key at price level = 7
+        assert!(!cb::has_key(asks_tree, 7), 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has key at price level = 7
+        assert!(cb::has_key(bids_tree, 7), 0);
+        let (total_volume, orders) = ob::get_OO(bids_tree, 7);
+        // Total bid volume for OO struct at price level (7) = 11 - 8 = 3
+        // Number of bids at OO struct at price level (7) = 3 - 1 = 2
+        assert!(total_volume == 3, 0);
+        assert!(vector::length(orders) == 2, 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+    // 7. crossed_multiple_bids_complete_across_prices
+    // -> price=7, Bid(ALICE, 3), Bid(BOB,6), Bid(ALICE,2) gets filled
+    // -> price=6, Bid(CAROL, 2) gets filled
+    #[test]
+    fun crossed_multiple_bids_complete_across_prices() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23, ERIN: 500 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965, ERIN: 500 }
+
+        // Create ask
+        ts::next_tx(scenario, ERIN);
+        {
+            let price = 6;
+            let amount = 13;
+            let nft = ts::take_from_address<Nft>(scenario, ERIN);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD NOT exist as ask is filled immediately
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 5 vol = 35
+        // After ask Nft balance = 100 + 5 = 105
+        // After ask SUI balance = 815
+        assert!(get_nft_balance(scenario, ALICE) == 105, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // Before ask Nft balance = 53
+        // Before ask SUI balance = 905
+        // Bid fulfilled @ 7/ea x 6 vol = 42
+        // After ask Nft balance = 53 + 6 = 59
+        // After ask SUI balance = 905
+        assert!(get_nft_balance(scenario, BOB) == 59, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Bid fulfilled @ 6/ea x 2 vol = 12
+        // After ask Nft balance = 23 + 2 = 25
+        // After ask SUI balance = 965
+        assert!(get_nft_balance(scenario, CAROL) == 25, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 965, 0);
+
+        // Verify Nft balance for ERIN
+        // Before ask Nft balance = 500
+        // Before ask SUI balance = 500
+        // Ask fulfilled @ 7/ea x 11 vol = 77
+        // Ask fulfilled @ 6/ea x 2 vol = 12
+        // After ask Nft balance = 500 - 13 = 487
+        // After ask SUI balance = 500 + 77 + 12 = 589
+        assert!(get_nft_balance(scenario, ERIN) == 487, 0);
+        assert!(get_coin_balance(scenario, ERIN) == 589, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has NO key at price level = 7 or price level = 6
+        assert!(!cb::has_key(asks_tree, 6), 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has NO key at price level = 7 or price level = 6
+        assert!(!cb::has_key(bids_tree, 7), 0);
+        assert!(!cb::has_key(bids_tree, 6), 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+    // 8. crossed_multiple_bids_partial_across_prices
+    // -> price=7, Bid(ALICE,3), Bid(BOB,6), Bid(ALICE,2) gets filled
+    // -> price=6, Bid(CAROL, 2) gets partially filled
+    // -> Bid(CAROL,2) to be updated to Bid(CAROL, <2)
+    #[test]
+    fun crossed_multiple_bids_partial_across_prices() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23, ERIN: 500 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965, ERIN: 500 }
+
+        // Create ask
+        ts::next_tx(scenario, ERIN);
+        {
+            let price = 6;
+            let amount = 12;
+            let nft = ts::take_from_address<Nft>(scenario, ERIN);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD NOT exist as ask is filled immediately
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 5 vol = 35
+        // After ask Nft balance = 100 + 5 = 105
+        // After ask SUI balance = 815 = 815
+        assert!(get_nft_balance(scenario, ALICE) == 105, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // Before ask Nft balance = 53
+        // Before ask SUI balance = 905
+        // Bid fulfilled @ 7/ea x 6 vol = 42
+        // After ask Nft balance = 53 + 6 = 59
+        // After ask SUI balance = 905
+        assert!(get_nft_balance(scenario, BOB) == 59, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Bid fulfilled @ 6/ea x 1 vol = 6
+        // After ask Nft balance = 23 + 1 = 24
+        // After ask SUI balance = 965
+        assert!(get_nft_balance(scenario, CAROL) == 24, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 965, 0);
+
+        // Verify Nft balance for ERIN
+        // Before ask Nft balance = 500
+        // Before ask SUI balance = 500
+        // Ask fulfilled @ 7/ea x 11 vol = 77
+        // Ask fulfilled @ 6/ea x 1 vol = 6
+        // After ask Nft balance = 500 - 12 = 488
+        // After ask SUI balance = 500 + 77 + 6 = 583
+        assert!(get_nft_balance(scenario, ERIN) == 488, 0);
+        assert!(get_coin_balance(scenario, ERIN) == 583, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has no key at price level = 6
+        assert!(!cb::has_key(asks_tree, 6), 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has NO key at price level = 7
+        assert!(!cb::has_key(bids_tree, 7), 0);
+        // Bids tree has key at price level = 6
+        assert!(cb::has_key(bids_tree, 6), 0);
+
+        let (total_volume, orders) = ob::get_OO(bids_tree, 6);
+        // Total bid volume for OO struct at price level (7) = 2 - 1 = 1
+        // Number of bids at OO struct at price level (7) = 1
+        assert!(total_volume == 1, 0);
+        assert!(vector::length(orders) == 1, 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+    // 9. crossed_all_bids_in_tree_complete
+    // -> price=7, Bid(ALICE,3), Bid(BOB,6), Bid(ALICE,2) gets filled
+    // -> price=6, Bid(CAROL, 2) gets filled
+    // -> price=5, Bid(ALICE, 5), Bid(ALICE, 5) gets filled
+    #[test]
+    fun crossed_all_bids_in_tree_complete() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23, ERIN: 500 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965, ERIN: 500 }
+
+        // Create ask
+        ts::next_tx(scenario, ERIN);
+        {
+            let price = 5;
+            let amount = 23;
+            let nft = ts::take_from_address<Nft>(scenario, ERIN);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD NOT exist as ask is filled immediately
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 5 vol = 35
+        // Bid fulfilled @ 5/ea x 10 vol = 50
+        // After ask Nft balance = 100 + 15 = 115
+        // After ask SUI balance = 815
+        assert!(get_nft_balance(scenario, ALICE) == 115, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // Before ask Nft balance = 53
+        // Before ask SUI balance = 905
+        // Bid fulfilled @ 7/ea x 6 vol = 42
+        // After ask Nft balance = 53 + 6 = 59
+        // After ask SUI balance = 905
+        assert!(get_nft_balance(scenario, BOB) == 59, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Bid fulfilled @ 6/ea x 1 vol = 6
+        // After ask Nft balance = 23 + 2 = 25
+        // After ask SUI balance = 965
+        assert!(get_nft_balance(scenario, CAROL) == 25, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 965, 0);
+
+        // Verify Nft balance for ERIN
+        // Before ask Nft balance = 500
+        // Before ask SUI balance = 500
+        // Ask fulfilled @ 7/ea x 11 vol = 77
+        // Ask fulfilled @ 6/ea x 2 vol = 12
+        // Ask fulfilled @ 5/ea x 10 vol = 50
+        // After ask Nft balance = 500 - 23 = 477
+        // After ask SUI balance = 500 + 77 + 12 + 50 = 639
+        assert!(get_nft_balance(scenario, ERIN) == 477, 0);
+        assert!(get_coin_balance(scenario, ERIN) == 639, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has no key at price level = 5
+        assert!(!cb::has_key(asks_tree, 5), 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has NO key at price level = 7
+        assert!(!cb::has_key(bids_tree, 7), 0);
+        // Bids tree has NO key at price level = 6
+        assert!(!cb::has_key(bids_tree, 6), 0);
+        // Bids tree has NO key at price level = 5
+        assert!(!cb::has_key(bids_tree, 5), 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+    // 10. crossed_all_bids_in_tree_complete_add_to_asks_tree
+    // -> price=7, Bid(ALICE,3), Bid(BOB,6), Bid(ALICE,2) gets filled
+    // -> price=6, Bid(CAROL, 2) gets filled
+    // -> price=5, Bid(ALICE, 5), Bid(ALICE, 5) gets filled
+    // -> price<=5 Ask(ERIN, X) gets added to asks_tree
+    #[test]
+    fun crossed_all_bids_in_tree_complete_add_to_asks_tree() {
+        // Base scenario, everyone starts with 1000 SUI
+        let scenario_val = ts::begin(ADMIN);
+        let scenario = &mut scenario_val;
+        let coins_to_mint = 1000;
+        init_test_accounts(scenario, coins_to_mint);
+
+        // Starting NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23 }
+        // Starting SUI Balance: { ALICE: 900, BOB: 947, CAROL: 977 }
+        let (project, market, clob) = init_ob(scenario, 100, 53, 23);
+        init_bids(scenario, &mut clob, &mut project);
+        // After init NFT qty    : { ALICE: 100, BOB:  53, CAROL:  23, ERIN: 500 }
+        // After init SUI Balance: { ALICE: 815, BOB: 905, CAROL: 965, ERIN: 500 }
+
+        // Create ask
+        ts::next_tx(scenario, ERIN);
+        {
+            let price = 5;
+            let amount = 53;
+            let nft = ts::take_from_address<Nft>(scenario, ERIN);
+            // price in asks_tree SHOULD NOT exist
+            assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
+            ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));
+            // price in asks_tree SHOULD exist as ask is not filled completely
+            assert!(cb::has_key(ob::get_asks_tree(&clob), price), 0);
+        };
+
+        ts::next_tx(scenario, ADMIN);
+
+        // Verify Nft balance for ALICE
+        // Before ask Nft balance = 100
+        // Before ask SUI balance = 815
+        // Bid fulfilled @ 7/ea x 5 vol = 35
+        // Bid fulfilled @ 5/ea x 10 vol = 50
+        // After ask Nft balance = 100 + 15 = 115
+        // After ask SUI balance = 815
+        assert!(get_nft_balance(scenario, ALICE) == 115, 0);
+        assert!(get_coin_balance(scenario, ALICE) == 815, 0);
+
+        // Verify Nft balance for BOB
+        // Before ask Nft balance = 53
+        // Before ask SUI balance = 905
+        // Bid fulfilled @ 7/ea x 6 vol = 42
+        // After ask Nft balance = 53 + 6 = 59
+        // After ask SUI balance = 905
+        assert!(get_nft_balance(scenario, BOB) == 59, 0);
+        assert!(get_coin_balance(scenario, BOB) == 905, 0);
+
+        // Verify Nft balance for CAROL
+        // Before ask Nft balance = 23
+        // Before ask SUI balance = 965
+        // Bid fulfilled @ 6/ea x 1 vol = 6
+        // After ask Nft balance = 23 + 2 = 25
+        // After ask SUI balance = 965
+        assert!(get_nft_balance(scenario, CAROL) == 25, 0);
+        assert!(get_coin_balance(scenario, CAROL) == 965, 0);
+
+        // Verify Nft balance for ERIN
+        // Before ask Nft balance = 500
+        // Before ask SUI balance = 500
+        // Ask fulfilled @ 7/ea x 11 vol = 77
+        // Ask fulfilled @ 6/ea x 2 vol = 12
+        // Ask fulfilled @ 5/ea x 10 vol = 50
+        // After ask Nft balance = 500 - 23 = 477
+        // After ask SUI balance = 500 + 77 + 12 + 50 = 639
+        assert!(get_nft_balance(scenario, ERIN) == 447, 0);
+        assert!(get_coin_balance(scenario, ERIN) == 639, 0);
+
+        let asks_tree = ob::get_asks_tree(&clob);
+        // Asks tree has no key at price level = 5
+        assert!(cb::has_key(asks_tree, 5), 0);
+        let (total_volume, orders) = ob::get_OO(asks_tree, 5);
+        // Total ask volume for OO struct at price level (5) = 53 - 23 = 30
+        // Number of asks at OO struct at price level (7) = 1
+        assert!(total_volume == 30, 0);
+        assert!(vector::length(orders) == 1, 0);
+
+        let bids_tree = ob::get_bids_tree(&clob);
+        // Bids tree has NO key at price level = 7
+        assert!(!cb::has_key(bids_tree, 7), 0);
+        // Bids tree has NO key at price level = 6
+        assert!(!cb::has_key(bids_tree, 6), 0);
+        // Bids tree has NO key at price level = 5
+        assert!(!cb::has_key(bids_tree, 5), 0);
+
+        ts::return_shared(project);
+        ts::return_shared(market);
+        ts::return_shared(clob);
+        ts::end(scenario_val);
+    }
+
+    /*
+    // Initialized Bids NEW
+    Bids:{
+        price_level: {
+            OO(price=7, total_volume=11): [Bid(ALICE, 3), Bid(BOB, 6), Bid(ALICE, 2)],
+            OO(price=6, total_volume=2): [Bid(CAROL, 2)],
+            OO(price=5, total_volume=10): [Bid(ALICE, 5), Bid(ALICE, 5)],
+        }
+    }
+    */
 }

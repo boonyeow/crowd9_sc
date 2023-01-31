@@ -37,6 +37,10 @@
       <excludeFolder url="file://$MODULE_DIR$/sui/sui_programmability/examples/multi_package/main_package/build" />
       <excludeFolder url="file://$MODULE_DIR$/sui/sui_programmability/examples/fungible_tokens/build" />
       <excludeFolder url="file://$MODULE_DIR$/sui/sui_programmability/examples/objects_tutorial/build" />
+      <excludeFolder url="file://$MODULE_DIR$/sui/sdk/typescript/test/e2e/data/dynamic_fields/build" />
+      <excludeFolder url="file://$MODULE_DIR$/sui/crates/sui-core/src/unit_tests/data/depends_on_basics/build" />
+      <excludeFolder url="file://$MODULE_DIR$/sui/sui_programmability/examples/ecommerce/build" />
+      <excludeFolder url="file://$MODULE_DIR$/sui/sui_programmability/examples/frenemies/build" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
