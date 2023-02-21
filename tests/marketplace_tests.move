@@ -98,7 +98,6 @@ module crowd9_sc::marketplace_tests{
 
     #[test]
     fun create_marketplace(){
-        debug::print(&b"hi");
         let scenario_val = test_scenario::begin(ADMIN);
         let scenario = &mut scenario_val;
         let marketplace_obj = init_marketplace(scenario);
@@ -192,7 +191,7 @@ module crowd9_sc::marketplace_tests{
 
             // check if owner received proceeds
             let proceeds = test_scenario::take_from_address<Coin<SUI>>(scenario, ALICE);
-            debug::print(&proceeds);
+            // debug::print(&proceeds);
             assert!(coin::value(&proceeds) == listing_price, EAmountIncorrect);
             test_scenario::return_to_address(ALICE, proceeds);
         };

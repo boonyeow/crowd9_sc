@@ -222,7 +222,7 @@ module crowd9_sc::ino{
             let nft_ids = vec_set::empty<ID>();
             let metadata = option::extract(&mut campaign.project_metadata);
 
-            airdrop(campaign, &mut metadata, nft_ids, object::uid_to_inner(&project_id), ctx);
+            airdrop(campaign, &mut metadata, &mut nft_ids, object::uid_to_inner(&project_id), ctx);
             
             event::emit(CampaignSuccess{
                 campaign_id: object::id(campaign),
@@ -241,14 +241,14 @@ module crowd9_sc::ino{
         }
     }
 
-    fun airdrop(campaign: &mut Campaign, metadata: &mut ProjectMetadata, nft_ids: VecSet<ID>, project_id: ID, ctx: &mut TxContext){
+    fun airdrop(campaign: &mut Campaign, metadata: &mut ProjectMetadata, nft_ids: &mut VecSet<ID>, project_id: ID, ctx: &mut TxContext){
         let keys = dict::get_keys(&campaign.contributors);
         while(!dict::is_empty(&campaign.contributors)){
             let contributor = vector::pop_back(&mut keys);
             let balance = dict::remove(&mut campaign.contributors, contributor);
             let id = object::new(ctx);
-            vec_set::insert(&mut nft_ids, object::uid_to_inner(&id));
 
+            vec_set::insert(nft_ids, object::uid_to_inner(&id));
             let nft = nft::mint(id, project_id, c9_balance::increase_supply(nft::project_supply_mut(metadata), balance));
             transfer::transfer(nft, contributor);
         };

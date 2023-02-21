@@ -10,7 +10,6 @@ module crowd9_sc::marketplace {
     use sui::balance::{Self, Balance};
     use sui::event::emit;
     use sui::table::{Self, Table};
-    use std::debug::{Self};
     use sui::vec_set::{Self, VecSet};
 
     // ======= Constants =======
@@ -69,7 +68,6 @@ module crowd9_sc::marketplace {
 
     // ======= Core Functionalities =======
     fun init(ctx: &mut TxContext){
-        debug::print(&b"hihi");
         // create a shared marketplace that accepts SUI coin
         let id = object::new(ctx);
         let listing_ids = vec_set::empty<ID>();
@@ -147,7 +145,6 @@ module crowd9_sc::marketplace {
             let offeror = vector::pop_back(&mut offerors);
             let offer_balance = table::remove(&mut listing.offer_data, offeror);
             transfer::transfer(coin::from_balance(offer_balance, ctx), offeror);
-            // debug::print(&offeror);debug::print(&offeror);debug::print(&offeror);
         };
     }
 
@@ -260,15 +257,13 @@ module crowd9_sc::marketplace {
         transfer::transfer(TestCapability { id: object::new(test_scenario::ctx(scenario)) }, ADMIN);
         test_scenario::next_tx(scenario, ADMIN);
         {
-        let x: TestCapability = test_scenario::take_from_address(scenario, ADMIN);
-        debug::print(&x);
-        transfer::transfer(x, BOB);
+            let x: TestCapability = test_scenario::take_from_address(scenario, ADMIN);
+            transfer::transfer(x, BOB);
         };
         test_scenario::next_tx(scenario, BOB);
         {
-        let x: TestCapability = test_scenario::take_from_address(scenario, ADMIN);
-        debug::print(&x);
-        test_scenario::return_to_address(BOB, x);
+            let x: TestCapability = test_scenario::take_from_address(scenario, ADMIN);
+            test_scenario::return_to_address(BOB, x);
         };
 
         test_scenario::end(scenario_val);

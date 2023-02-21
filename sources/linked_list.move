@@ -158,6 +158,12 @@ module crowd9_sc::linked_list {
         *next
     }
 
+    // TODO add test case
+    public fun destroy_empty<K: copy + drop + store, V: store>(linked_list: LinkedList<K, V>, ){
+        let LinkedList { first:_, last:_, nodes} = linked_list; // unpack
+        table::destroy_empty(nodes);
+    }
+
     #[test_only]
     public fun print_list<K: copy + drop + store, V: store>(linked_list: &LinkedList<K, V>) {
         use std::debug;
@@ -170,6 +176,21 @@ module crowd9_sc::linked_list {
                 prev_node = node;
             }
         };
+    }
+
+    #[test_only]
+    public fun get_nodes<K: copy + drop + store, V: store>(linked_list: &LinkedList<K, V>): &Table<K, Node<K, V>>{
+        &linked_list.nodes
+    }
+
+    #[test_only]
+    public fun get_next_node<K: copy + drop + store, V: store>(node: &Node<K,V>): Option<K>{
+        *&node.next
+    }
+
+    #[test_only]
+    public fun get_node_value<K: copy + drop + store, V: store>(node: &Node<K, V>): &V{
+        &node.value
     }
 }
 
