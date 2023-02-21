@@ -1,11 +1,14 @@
 module crowd9_sc::nft {
+    use std::option::{Self, Option};
     use sui::object::{Self, UID, ID};
-    use sui::tx_context::{TxContext};
+    use sui::tx_context::{Self, TxContext};
     // use crowd9_sc::ino::{Self, Project};
-    use sui::balance::{/*Self,*/ Balance};
+    use sui::balance::{Self, Balance};
     use sui::url::{Self, Url};
     use sui::vec_set::{Self, VecSet};
     use sui::sui::SUI;
+    use sui::transfer::{Self};
+    use sui::coin::{Self};
     use crowd9_sc::balance::{Self as c9_balance, NftSupply, NftBalance};
     friend crowd9_sc::ino;
     friend crowd9_sc::governance;
@@ -25,7 +28,13 @@ module crowd9_sc::nft {
         tap_rate: u64,
         balance: Balance<SUI>,
         metadata: ProjectMetadata,
-        owner_cap_id: ID
+        owner_cap_id: ID,
+        refund_info: Option<RefundInfo>,
+    }
+
+    struct RefundInfo has store{
+        total_supply: u64,
+        amount_to_refund: u64
     }
 
     struct Nft has key, store{
@@ -53,7 +62,7 @@ module crowd9_sc::nft {
     public(friend) fun create_project(id: UID, nft_ids: VecSet<ID>, tap_rate: u64, balance: Balance<SUI>, metadata: ProjectMetadata, owner_cap_id: ID): Project {
         let last_withdrawn_timestamp = 0; // TODO - Update timestamp once released
         Project {
-            id, nft_ids, last_withdrawn_timestamp, tap_rate, balance, metadata, owner_cap_id
+            id, nft_ids, last_withdrawn_timestamp, tap_rate, balance, metadata, owner_cap_id, refund_info: option::none()
         }
     }
 
@@ -135,9 +144,59 @@ module crowd9_sc::nft {
     //     aborts_if before_val + c.balance.value > MAX_U64;
     // }
 
+    public(friend) fun burn(project: &mut Project, nft: Nft): u64{
+        let Nft {id, project_id:_, balance } = nft;
+        let nft_supply = &mut project.metadata.supply;
+        object::delete(id);
+        c9_balance::decrease_supply(nft_supply, balance)
+    }
+
+    //      spec schema Burn<T> {
+    //         cap: TreasuryCap<T>;
+    //         c: Coin<T>;
+
+    // let before_supply = cap.total_supply.value;
+    // let post after_supply = cap.total_supply.value;
+    //         ensures after_supply == before_supply - c.balance.value;
+
+    //         aborts_if before_supply < c.balance.value;
+    //     }
+
+    //     spec burn {
+    //         include Burn<T>;
+    //     }
+
+
+    public(friend) fun set_refund_info(project: &mut Project){
+        let ri = RefundInfo {
+            total_supply: c9_balance::supply_value(&project.metadata.supply),
+            amount_to_refund: balance::value(&project.balance)
+        };
+        option::fill(&mut project.refund_info, ri);
+    }
+
+    public(friend) fun refund(project: &mut Project, accumulated_value: u64, sender: address, ctx: &mut TxContext){
+        let ri = option::borrow(&project.refund_info);
+        let refund_amount = ri.amount_to_refund * (accumulated_value / ri.total_supply);
+        transfer::transfer(coin::take(&mut project.balance, refund_amount, ctx), sender);
+    }
+
+    public(friend) fun withdraw_funds(project: &mut Project, ctx: &mut TxContext){
+        let sender = tx_context::sender(ctx);
+        assert!(!is_refund_mode(project), 0); // TODO: change error code
+        assert!(project.metadata.creator == sender, 1); //TODO: change error code
+        let max_withdrawable = (tx_context::epoch(ctx) - project.last_withdrawn_timestamp) * project.tap_rate;
+        transfer::transfer(coin::take(&mut project.balance, max_withdrawable, ctx), sender);
+    }
+
+    public(friend) fun is_refund_mode(project: &Project): bool{
+        option::is_some(&project.refund_info)
+    }
 
     // TODO WIP
     fun from_balance(project_id: ID, balance: NftBalance, ctx: &mut TxContext): Nft{
         Nft { id: object::new(ctx), project_id, balance }
     }
+
+
 }
