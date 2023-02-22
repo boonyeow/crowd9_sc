@@ -1,6 +1,6 @@
 #[test_only]
 module crowd9_sc::dict_tests {
-    use crowd9_sc::dict::{Self, add, contains, borrow, borrow_mut, remove};
+    use crowd9_sc::dict::{Self, add, contains, borrow, borrow_mut, drop, remove, duplicate};
     use sui::test_scenario as ts;
 
     #[test]
@@ -125,5 +125,25 @@ module crowd9_sc::dict_tests {
         assert!(dict::length(&dict) == 2, 0);
         ts::end(scenario);
         dict::drop(dict);
+    }
+
+    #[test]
+    fun duplicate_dict(){
+        let sender = @0x0;
+        let scenario = ts::begin(sender);
+        let dict = dict::new<u64, u64>(ts::ctx(&mut scenario));
+
+        add(&mut dict, 0, 0);
+        add(&mut dict, 1, 1);
+        add(&mut dict, 2, 2);
+
+        let duplicated_dict = duplicate(&dict, ts::ctx(&mut scenario));
+        assert!(*borrow(&duplicated_dict, 0) == 0, 0);
+        assert!(*borrow(&duplicated_dict, 1) == 1, 1);
+        assert!(*borrow(&duplicated_dict, 2) == 2, 2);
+
+        ts::end(scenario);
+        drop(dict);
+        drop(duplicated_dict);
     }
 }

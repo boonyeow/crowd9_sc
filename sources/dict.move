@@ -85,4 +85,16 @@ module crowd9_sc::dict{
     public fun get_keys<K: copy + drop + store, V: store>(dict: &Dict<K, V>): vector<K>{
         vec_set::into_keys(dict.keys)
     }
+
+    use std::vector;
+    // Return a copy of dictionary only if value can be copied / dropped
+    public fun duplicate<K: copy + drop + store, V: copy + drop + store>(dict: &Dict<K,V>, ctx: &mut TxContext): Dict<K, V>{
+        let duplicated_dict = new(ctx);
+        let keys = get_keys(dict);
+        while(!vector::is_empty(&keys)){
+            let key = vector::pop_back(&mut keys);
+            add(&mut duplicated_dict, key, *borrow(dict, key));
+        };
+        duplicated_dict
+    }
 }
