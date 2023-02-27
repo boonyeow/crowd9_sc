@@ -13,7 +13,8 @@ module crowd9_sc::ino{
     // use sui::url::{Self, Url};
     use crowd9_sc::balance::{Self as c9_balance/*, NftSupply , NftBalance*/};
     use crowd9_sc::dict::{Self, Dict};
-    use crowd9_sc::nft::{Self, ProjectMetadata /*, Nft*/};
+    use crowd9_sc::nft::{Self, ProjectMetadata, Nft};
+    use crowd9_sc::governance;
 
 
     /// ======= Constants =======
@@ -222,7 +223,7 @@ module crowd9_sc::ino{
             let nft_ids = vec_set::empty<ID>();
             let metadata = option::extract(&mut campaign.project_metadata);
 
-            airdrop(campaign, &mut metadata, &mut nft_ids, object::uid_to_inner(&project_id), ctx);
+            let (nft_store, voting_power, delegations) = init_governance_components(campaign, &mut metadata, &mut nft_ids, object::uid_to_inner(&project_id), ctx);
             
             event::emit(CampaignSuccess{
                 campaign_id: object::id(campaign),
@@ -233,25 +234,43 @@ module crowd9_sc::ino{
 
             let balance_value = balance::value(&campaign.balance);
             let balance = coin::into_balance(coin::take(&mut campaign.balance, balance_value, ctx));
-
+            let current_timestamp = tx_context::epoch(ctx);
             let project = nft::create_project(project_id, nft_ids, campaign.proposed_tap_rate, balance, metadata, campaign.owner_cap_id);
 
-            // rmb to call gov contract to create governance object and share it
+            governance::create_governance(&mut project, current_timestamp, nft_store, voting_power, delegations, ctx);
             transfer::share_object(project);
         }
     }
 
-    fun airdrop(campaign: &mut Campaign, metadata: &mut ProjectMetadata, nft_ids: &mut VecSet<ID>, project_id: ID, ctx: &mut TxContext){
+    use sui::table::{Self, Table};
+    use crowd9_sc::governance::{DelegationInfo};
+
+    fun init_governance_components(
+        campaign: &mut Campaign,
+        metadata: &mut ProjectMetadata,
+        nft_ids: &mut VecSet<ID>,
+        project_id: ID,
+        ctx: &mut TxContext
+    ) : (Dict<address, Nft>, Dict<address, u64>, Table<address, DelegationInfo>){
+        let nft_store = dict::new(ctx);
+        let voting_power = dict::new(ctx);
+        let delegations = table::new(ctx);
+
         let keys = dict::get_keys(&campaign.contributors);
         while(!dict::is_empty(&campaign.contributors)){
             let contributor = vector::pop_back(&mut keys);
             let balance = dict::remove(&mut campaign.contributors, contributor);
-            let id = object::new(ctx);
 
+            let id = object::new(ctx);
             vec_set::insert(nft_ids, object::uid_to_inner(&id));
             let nft = nft::mint(id, project_id, c9_balance::increase_supply(nft::project_supply_mut(metadata), balance));
-            transfer::transfer(nft, contributor);
+            dict::add(&mut nft_store, contributor, nft);
+            dict::add(&mut voting_power, contributor, balance);
+            let di = governance::create_delegation_info(option::none(), vector::empty());
+            table::add(&mut delegations, contributor, di);
         };
+
+        (nft_store, voting_power, delegations)
     }
 
     public fun claim_funds(campaign: &mut Campaign, ctx: &mut TxContext){

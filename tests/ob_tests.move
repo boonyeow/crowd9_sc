@@ -3,6 +3,7 @@
 module crowd9_sc::ob_tests{
     use crowd9_sc::ino::{Self, Campaign, OwnerCap};
     use crowd9_sc::nft::{Self, Project, Nft};
+    use crowd9_sc::governance::{Self, Governance};
     // use crowd9_sc::my_module::{Self, Card};
     use crowd9_sc::ob::{Self, Market, CLOB, Bid, Ask};
     use crowd9_sc::crit_bit_u64::{Self as cb};
@@ -24,30 +25,6 @@ module crowd9_sc::ob_tests{
 
     fun hello_world(){
         debug::print(&b"hi");
-    }
-
-    fun init_campaign(scenario: &mut Scenario): (Campaign, OwnerCap){
-        ts::next_tx(scenario, ADMIN);
-        ino::create_campaign(b"The One", b"Description", 100, 1, 1, 20, ts::ctx(scenario));
-        ts::next_tx(scenario, ADMIN);
-        let campaign = ts::take_shared<Campaign>(scenario);
-        let owner_cap = ts::take_from_address<OwnerCap>(scenario, ADMIN);
-
-        ts::next_tx(scenario, ADMIN);
-        ino::start_campaign(&mut campaign, &owner_cap, ts::ctx(scenario));
-
-        ts::next_tx(scenario, ALICE);
-        ino::contribute(&mut campaign, 100, take_coins(scenario, ALICE, 100), ts::ctx(scenario));
-
-        ts::next_tx(scenario, BOB);
-        ino::contribute(&mut campaign, 53, take_coins(scenario, BOB, 53), ts::ctx(scenario));
-
-        ts::next_tx(scenario, CAROL);
-        ino::contribute(&mut campaign, 23, take_coins(scenario, CAROL, 23), ts::ctx(scenario));
-
-        ts::next_tx(scenario, ADMIN);
-        ino::end_campaign(&mut campaign, ts::ctx(scenario));
-        (campaign, owner_cap)
     }
 
     /// funding_goal = 100, price_per_nft = 1;
@@ -94,6 +71,21 @@ module crowd9_sc::ob_tests{
 
         ts::next_tx(scenario, ADMIN);
         let clob = ts::take_shared<CLOB>(scenario);
+        let governance = ts::take_shared<Governance>(scenario);
+
+        ts::next_tx(scenario, ALICE);
+        governance::withdraw_nft(&mut governance, &mut project, alice_qty, ts::ctx(scenario));
+
+        ts::next_tx(scenario, BOB);
+        governance::withdraw_nft(&mut governance, &mut project, bob_qty, ts::ctx(scenario));
+
+        ts::next_tx(scenario, CAROL);
+        governance::withdraw_nft(&mut governance, &mut project, carol_qty, ts::ctx(scenario));
+
+        ts::next_tx(scenario, ERIN);
+        governance::withdraw_nft(&mut governance, &mut project, 500, ts::ctx(scenario));
+
+        ts::return_shared(governance);
 
         (project, market, clob)
     }
@@ -1354,6 +1346,7 @@ module crowd9_sc::ob_tests{
             let price = 5;
             let amount = 23;
             let nft = ts::take_from_address<Nft>(scenario, ERIN);
+            std::debug::print(&nft);
             // price in asks_tree SHOULD NOT exist
             assert!(!cb::has_key(ob::get_asks_tree(&clob), price), 0);
             ob::create_ask(&mut clob, &mut project, nft, amount, price, ts::ctx(scenario));

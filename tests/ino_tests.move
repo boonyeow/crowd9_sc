@@ -7,6 +7,7 @@ module crowd9_sc::ino_tests {
     use sui::balance;
     use crowd9_sc::ino::{Self, Campaign, OwnerCap};
     use crowd9_sc::nft::{Self, Project, Nft};
+    use crowd9_sc::governance::{Self, Governance};
     use crowd9_sc::dict;
     use crowd9_sc::balance::{Self as c9_balance};
     use std::vector;
@@ -312,8 +313,13 @@ module crowd9_sc::ino_tests {
         assert!(c9_balance::supply_value(supply) == (1000000 + 100), 1);
         assert!(balance::value(project_balance) == (1000000 + 100), 2);
 
+        let governance = ts::take_shared<Governance>(scenario);
         {
             // check bob
+            ts::next_tx(scenario, BOB);
+            governance::withdraw_nft(&mut governance, &mut project, 1000000, ts::ctx(scenario));
+
+            ts::next_tx(scenario, BOB);
             let nft: Nft = ts::take_from_address(scenario, BOB);
             let balance = nft::nft_balance(&nft);
             assert!(c9_balance::value(balance) == 1000000, 3);
@@ -322,12 +328,17 @@ module crowd9_sc::ino_tests {
 
         {
             // check carol
+            ts::next_tx(scenario, CAROL);
+            governance::withdraw_nft(&mut governance, &mut project, 100, ts::ctx(scenario));
+
+            ts::next_tx(scenario, CAROL);
             let nft: Nft = ts::take_from_address(scenario, CAROL);
             let balance = nft::nft_balance(&nft);
             assert!(c9_balance::value(balance) == 100, 4);
             ts::return_to_address(CAROL, nft);
         };
 
+        ts::return_shared(governance);
         ts::return_shared(project);
         ts::return_to_address(ADMIN, admin_cap);
         ts::return_shared(campaign);

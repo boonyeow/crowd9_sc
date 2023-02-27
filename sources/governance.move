@@ -8,8 +8,8 @@ module crowd9_sc::governance {
     use sui::object::{Self, UID, ID};
     use sui::tx_context::{Self, TxContext};
     use std::vector;
-    use std::debug;
     use std::option::{Self, Option};
+    friend crowd9_sc::ino;
 
     /// ======= Constants =======
     const SCALE_FACTOR: u64 = 1000000000;
@@ -82,23 +82,10 @@ module crowd9_sc::governance {
         project: &mut Project,
         current_timestamp: u64,
         nft_store: Dict<address, Nft>,
+        voting_power: Dict<address, u64>,
+        delegations: Table<address, DelegationInfo>,
         ctx: &mut TxContext
     ) {
-        let voting_power = dict::new(ctx);
-        let delegations = table::new(ctx);
-        let owners = dict::get_keys(&nft_store);
-        while(!vector::is_empty(&owners)){
-            let owner = vector::pop_back(&mut owners);
-            dict::add(&mut voting_power, owner, nft::nft_value(dict::borrow(&nft_store, owner)));
-            table::add(&mut delegations, owner,
-                DelegationInfo{
-                    delegate_to: option::none(),
-                    delegated_by: vector::empty()
-                }
-            );
-        };
-        vector::destroy_empty(owners);
-
         let governance = Governance {
             id: object::new(ctx),
             project_id: object::id(project),
@@ -113,6 +100,13 @@ module crowd9_sc::governance {
         transfer::share_object(governance);
     }
 
+    public (friend) fun create_delegation_info(delegate_to: Option<address>, delegated_by: vector<address>): DelegationInfo{
+        DelegationInfo{
+            delegate_to,
+            delegated_by
+        }
+    }
+
     public entry fun create_proposal(
         project: &Project,
         governance: &mut Governance,
@@ -125,7 +119,7 @@ module crowd9_sc::governance {
         // let threshold = total_supply * SCALE_FACTOR * PROPOSE_THRESHOLD;
         let threshold = total_supply * PROPOSE_THRESHOLD/100 * 1000000000;
 
-        debug::print(&threshold);
+        // debug::print(&threshold);
         let nft = dict::borrow(&governance.nft_store, proposer);
         let nft_value = nft::nft_value(nft);
 
@@ -209,6 +203,7 @@ module crowd9_sc::governance {
         let voting_power = &mut governance.voting_power;
 
         assert!(delegatee != sender && dict::contains(nft_store, delegatee), EInvalidAction); // TODO change error code
+        assert!(dict::contains(nft_store, delegatee), 1); // to change error code
 
         // Check for potential circular delegation
         let current_di = *table::borrow_mut(delegations, delegatee);
@@ -613,5 +608,10 @@ module crowd9_sc::governance {
     #[test_only]
     public fun user_in_delegation(governance: &Governance, ctx:&mut TxContext): bool {
         table::contains(&governance.delegations, tx_context::sender(ctx))
+    }
+
+    #[test_only]
+    public fun get_nft_store(governance: &Governance): &Dict<address, Nft>{
+        &governance.nft_store
     }
 }
