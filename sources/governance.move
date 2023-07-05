@@ -9,6 +9,7 @@ module crowd9_sc::governance {
     use sui::tx_context::{Self, TxContext};
     use std::vector;
     use std::option::{Self, Option};
+    // use crowd9_sc::crit_bit_u64::is_empty;
     friend crowd9_sc::ino;
 
     /// ======= Constants =======
@@ -22,7 +23,7 @@ module crowd9_sc::governance {
     const EUnauthorizedUser: u64 = 002;
     const EInvalidAction: u64 = 003;
     const ENonExistingAction: u64 = 004;
-    const EUnxpectedError: u64 = 005;
+    const EUnexpectedError: u64 = 005;
     const ERepeatedDelegation: u64 = 006;
     const EInvalidDelegatee: u64 = 007;
     const ENoPermission: u64 = 008;
@@ -195,44 +196,74 @@ module crowd9_sc::governance {
     }
 
     const ECircularDelegation:u64 = 0001;
-    public entry fun delegate(governance: &mut Governance, delegatee: address, ctx: &mut TxContext){
+    fun get_delegation_root(delegations: &Table<address, DelegationInfo>, delegator: address, delegatee: address): address {
+        assert!(delegatee != delegator, ECircularDelegation);
+        let root_di = *table::borrow(delegations, delegatee);
+        let root_address = delegatee;
+        while(option::is_some(&root_di.delegate_to)){
+            let current_delegatee = *option::borrow(&root_di.delegate_to);
+                assert!(current_delegatee != delegator, ECircularDelegation);
+            root_di = *table::borrow(delegations, current_delegatee);
+            root_address = current_delegatee;
+        };
+        root_address
+    }
+
+    fun get_current_delegation_root(delegations: &Table<address, DelegationInfo>, root_address: address): address {
+        let root_di = *table::borrow(delegations, root_address);
+        while(option::is_some(&root_di.delegate_to)){
+            let current_delegatee = *option::borrow(&root_di.delegate_to);
+            root_di = *table::borrow(delegations, current_delegatee);
+            root_address = current_delegatee;
+        };
+        root_address
+    }
+
+    public entry fun delegate(governance: &mut Governance, delegatee: address, ctx: &mut TxContext) {
         assert!(governance.ongoing, EInvalidAction);
         let sender = tx_context::sender(ctx);
         let nft_store = &governance.nft_store;
         let delegations = &mut governance.delegations;
         let voting_power = &mut governance.voting_power;
 
-        assert!(delegatee != sender && dict::contains(nft_store, delegatee), EInvalidAction); // TODO change error code
-        assert!(dict::contains(nft_store, delegatee), 1); // to change error code
+        assert!(dict::contains(nft_store, delegatee) && table::contains(delegations, delegatee), EInvalidAction); // TODO change error code
+        assert!(dict::contains(nft_store, sender) && table::contains(delegations, sender), EInvalidAction); // TODO change error code
 
-        // Check for potential circular delegation
-        let current_di = *table::borrow_mut(delegations, delegatee);
-        while(option::is_some(&current_di.delegate_to)){
-            let current_delegatee = *option::borrow(&current_di.delegate_to);
-            assert!(current_delegatee != delegatee, ECircularDelegation);
-            current_di = *table::borrow_mut(delegations, current_delegatee);
-        };
+        // Check for circular delegation & get address of the FINAL ROOT delegatee.
+        // To add voting power to this address
+        let root = get_delegation_root(delegations, sender, delegatee);
 
         // Get sender's accumulated voting power
         let accumulated_voting_power = get_delegated_votes(delegations, sender, nft_store, ctx);
+        // Add accumulated voting_power to root
+        if(dict::contains(voting_power, root)){
+            let root_voting_power = dict::borrow(voting_power, root);
+            *dict::borrow_mut(voting_power, root) = *root_voting_power + accumulated_voting_power;
+        } else {
+            dict::add(voting_power, root, accumulated_voting_power);
+        };
 
         // If alr delegating to someone, remove prev delegation details
         // Things to change:
-        // 1. Update prev delegatee's voting power
+        // 1. Update prev delegatee's root's voting power
         // 2. remove sender from prev delegatee's delegated_by vector
-        let sender_info = table::borrow_mut(delegations, sender);
-        let prev_delegatee = sender_info.delegate_to;
-        if (option::is_some(&prev_delegatee)){
-            let prev_delegatee_address = option::extract(&mut prev_delegatee);
-            let prev_delegatee_voting_power = dict::borrow_mut(voting_power, prev_delegatee_address);
-            *prev_delegatee_voting_power = *prev_delegatee_voting_power - accumulated_voting_power;
 
-            // Update old delegatee's DI
+        let prev_delegatee = table::borrow(delegations, sender).delegate_to;
+        if (option::is_some(&prev_delegatee)){
+            // Update previous root's voting power
+            let prev_delegatee_address = option::extract(&mut prev_delegatee);
+            let prev_root = get_current_delegation_root(delegations, prev_delegatee_address);
+            let prev_root_voting_power = dict::borrow_mut(voting_power, prev_root);
+            *prev_root_voting_power = *prev_root_voting_power - accumulated_voting_power;
+
+            // Update prev delegatee's DI - remove sender from prev delegatee's delegated by
             let prev_delegatee_di = table::borrow_mut(delegations, prev_delegatee_address);
-            let (_, idx) = vector::index_of(&prev_delegatee_di.delegated_by, &delegatee);
+            let (_, idx) = vector::index_of(&prev_delegatee_di.delegated_by, &sender);
             vector::swap_remove(&mut prev_delegatee_di.delegated_by, idx);
         } else {
+            // If not already delegating to someone, remove voting power from sender
             // Update delegator's voting power
+            assert!(*dict::borrow(voting_power, sender) == accumulated_voting_power, 0); // sanity check, should be the same
             let sender_voting_power = dict::borrow_mut(voting_power, sender);
             *sender_voting_power = *sender_voting_power - accumulated_voting_power;
 
@@ -241,31 +272,17 @@ module crowd9_sc::governance {
             };
         };
 
-        // Add to delegatee's delegated_by vector
-        vector::push_back(&mut current_di.delegated_by, sender);
-
-        // Update delegatee's voting power
-        if(dict::contains(voting_power, delegatee)){
-            let new_delegatee_voting_power = dict::borrow(voting_power, delegatee);
-            *dict::borrow_mut(voting_power, delegatee) = *new_delegatee_voting_power + accumulated_voting_power;
+        // Update delegator's DI
+        let sender_info = table::borrow_mut(delegations, sender);
+        if(option::is_some(&sender_info.delegate_to)){
+            *option::borrow_mut(&mut sender_info.delegate_to) = delegatee;
         } else {
-            dict::add(voting_power, delegatee, accumulated_voting_power);
+            option::fill(&mut sender_info.delegate_to, delegatee);
         };
 
-        // Update DelegateInfo
-        // TODO: use nft_store to add table entry. Whenever someone deposits to nft_store, add a table entry to their address, and an empty DelegationInfo.
-        // TODO: Just a simple update (no need if/else) to the DelegationInfo after ^ is completed.
-        if(table::contains(delegations, sender)){
-            let di_mut = table::borrow_mut(delegations, sender);
-            *option::borrow_mut(&mut di_mut.delegate_to) = delegatee;
-        } else {
-            table::add(delegations, sender,
-                DelegationInfo {
-                    delegate_to: option::some(delegatee),
-                    delegated_by: vector::singleton(sender)
-                }
-            );
-        }
+        // Update delegatee's DI
+        let delegatee_info = table::borrow_mut(delegations, delegatee);
+        vector::push_back(&mut delegatee_info.delegated_by, sender);
     }
 
     public entry fun remove_delegatee(governance: &mut Governance, ctx: &mut TxContext){
@@ -312,10 +329,9 @@ module crowd9_sc::governance {
     }
 
     public entry fun deposit_nft(governance: &mut Governance, project: &mut Project, nfts: vector<Nft>, amount: u64, ctx: &mut TxContext) {
-        assert!(!vector::is_empty(&nfts), EUnxpectedError);
+        assert!(!vector::is_empty(&nfts), EUnexpectedError);
         let sender = tx_context::sender(ctx);
         let consolidated_nft = vector::pop_back(&mut nfts);
-
         let consolidated_value = nft::nft_value(&consolidated_nft);
         if(consolidated_value > amount) {
             let nft_balance = nft::balance_mut(&mut consolidated_nft);
@@ -337,6 +353,7 @@ module crowd9_sc::governance {
                 }
             };
         };
+
         merge_and_transfer(project, nfts, sender);
 
         if (dict::contains(&governance.nft_store, sender)) {
@@ -353,6 +370,17 @@ module crowd9_sc::governance {
                 }
             );
         };
+
+        let root = get_current_delegation_root(&governance.delegations, sender);
+        let voting_power = &mut governance.voting_power;
+
+
+        if(!dict::contains(voting_power, root)){
+            dict::add(voting_power, root, amount);
+        } else {
+            let root_voting_power = *dict::borrow(voting_power, root);
+            *dict::borrow_mut(voting_power, root) = root_voting_power + amount;
+        }
     }
 
     public entry fun withdraw_nft(governance: &mut Governance, project: &mut Project, amount:u64, ctx: &mut TxContext) {
@@ -361,7 +389,7 @@ module crowd9_sc::governance {
 
         let nft = dict::borrow(&governance.nft_store, sender);
         let nft_value = nft::nft_value(nft);
-        assert!(amount <= nft_value, EUnxpectedError); // Check if amount to claim is greater than max withdrawable
+        assert!(amount <= nft_value, EUnexpectedError); // Check if amount to claim is greater than max withdrawable
 
         let nft_store = &mut governance.nft_store;
         let delegations = &mut governance.delegations;
@@ -444,7 +472,7 @@ module crowd9_sc::governance {
             vec_set::remove(&mut proposal.abstain.holders, &sender);
             proposal.abstain.count = proposal.abstain.count - *voting_power;
         } else {
-            abort EUnxpectedError
+            abort EUnexpectedError
         };
         // Updating current votes
         if (vote_choice == VFor) {
@@ -553,7 +581,7 @@ module crowd9_sc::governance {
         } else if (vote_choice == VNoVote) {
             return proposal.no_vote.count
         } else {
-            abort EUnxpectedError
+            abort EUnexpectedError
         }
     }
 
@@ -568,7 +596,7 @@ module crowd9_sc::governance {
         } else if (vote_choice == VNoVote) {
             return vec_set::size(&proposal.no_vote.holders)
         } else {
-            abort EUnxpectedError
+            abort EUnexpectedError
         }
     }
 
@@ -581,12 +609,7 @@ module crowd9_sc::governance {
         dict::borrow_mut(&mut governance.proposal_data, proposal_id)
     }
 
-    // #[test_only]
-    // public fun get_delegatee(governance: &Governance, ctx: &mut TxContext): &address {
-    //     assert!(table::contains(&governance.delegations, tx_context::sender(ctx)), EInvalidAction);
-    //     let delegatee = table::borrow(&governance.delegations, tx_context::sender(ctx));
-    //     delegatee
-    // }
+
 
     #[test_only]
     public fun get_contributor_balance(governance: &Governance, contributor: address): u64{
@@ -601,17 +624,88 @@ module crowd9_sc::governance {
     }
 
     #[test_only]
-    public fun user_in_nftstore(governance: &Governance, ctx:&mut TxContext): bool {
-        dict::contains(&governance.nft_store, tx_context::sender(ctx))
+    public fun is_user_in_nft_store(governance: &Governance, user: address): bool {
+        dict::contains(&governance.nft_store, user)
     }
 
     #[test_only]
-    public fun user_in_delegation(governance: &Governance, ctx:&mut TxContext): bool {
-        table::contains(&governance.delegations, tx_context::sender(ctx))
+    public fun is_user_in_delegations(governance: &Governance, user: address): bool{
+        table::contains(&governance.delegations, user)
     }
 
     #[test_only]
     public fun get_nft_store(governance: &Governance): &Dict<address, Nft>{
         &governance.nft_store
+    }
+
+    #[test_only]
+    public fun get_voting_power(governance: &Governance, user: address): u64{
+        if (dict::contains(&governance.voting_power, user)){
+            *dict::borrow(&governance.voting_power, user)
+        } else { 0 }
+    }
+
+    #[test_only]
+    public fun is_delegating(governance: &Governance, user: address): bool {
+        let delegations = &governance.delegations;
+        let di = table::borrow(delegations, user);
+        option::is_some(&di.delegate_to)
+    }
+
+    #[test_only]
+    public fun is_delegated_to_address(governance: &Governance, delegator: address, delegatee: address): bool {
+        let delegations = &governance.delegations;
+        let di = table::borrow(delegations, delegator);
+        let delegated_to = *option::borrow(&di.delegate_to);
+        if (delegatee == delegated_to){
+            true
+        } else {
+            false
+        }
+    }
+
+    // Checks if delegatee is currently in delegator's delegate_to DI field
+    #[test_only]
+    public fun is_delegated_by(governance: &Governance, delegator: address, delegatee: address): bool{
+        let delegations = &governance.delegations;
+        let di = table::borrow(delegations, delegatee);
+        // std::debug::print(di);
+        vector::contains(&di.delegated_by, &delegator)
+    }
+
+    #[test_only]
+    public fun get_nft_value_in_store(governance: &Governance, user: address): u64 {
+        if (dict::contains(&governance.nft_store, user)) {
+            nft::nft_value(dict::borrow(&governance.nft_store, user))
+        } else { 0 }
+    }
+
+    #[test_only]
+    public fun find_delegation_root(governance: &Governance, starting_user: address): address{
+        let delegations = &governance.delegations;
+        let current_di = *table::borrow(delegations, starting_user);
+
+        while(option::is_some(&current_di.delegate_to)){
+                starting_user = *option::borrow(&current_di.delegate_to);
+                current_di = *table::borrow(delegations, starting_user);
+        };
+        starting_user
+    }
+
+    #[test_only]
+    public fun get_delegation_info(governance: &Governance, user: address): DelegationInfo {
+        let delegations = &governance.delegations;
+        *table::borrow(delegations, user)
+    }
+
+    #[test_only]
+    public fun take(project: &mut Project, nft: &mut Nft, value: u64, ctx: &mut TxContext): Nft{
+        nft::take(project, nft::balance_mut(nft), value, ctx)
+    }
+
+    #[test_only]
+    public fun set_refund_mode(governance: &mut Governance, project: &mut Project){
+        nft::set_refund_info(project);
+        governance.ongoing = false;
     }
 }
