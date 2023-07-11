@@ -3,9 +3,8 @@ name = "crowd9_sc"
 version = "0.0.1"
 
 [dependencies]
-#Sui = { local = "sui/crates/sui-framework"}
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework", rev = "devnet" }
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet" }
 
 [addresses]
-crowd9_sc =  "0x0"
-sui =  "0000000000000000000000000000000000000002"
+crowd9_sc = "0x0"
+sui = "0000000000000000000000000000000000000000000000000000000000000002"
