@@ -190,6 +190,7 @@ module crowd9_sc::campaign {
     public fun transition_to_governance<X, Y>(
         coin_bag: &mut CoinBag,
         campaign: &mut Campaign<X>,
+        clock: &Clock,
         ctx: &mut TxContext
     ) {
         assert!(campaign.status == SSuccess, 0); // must be success
@@ -203,10 +204,12 @@ module crowd9_sc::campaign {
         let treasury_tokens = balance::withdraw_all(&mut campaign.balance);
 
         let governance = governance::create_governance(
+            campaign.creator,
             treasury_tokens,
             governance_token,
             contributions,
             campaign.tokens_to_mint,
+            clock,
             ctx
         );
         transfer::public_share_object(governance);

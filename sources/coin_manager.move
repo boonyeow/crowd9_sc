@@ -22,6 +22,7 @@ module crowd9_sc::coin_manager {
 
     fun init(ctx: &mut TxContext) {
         let admin_cap = AdminCap { id: object::new(ctx) };
+        // TODO: add admin_cap in remove
         // transfer::transfer(admin_cap, tx_context::sender(ctx));
         transfer::share_object(admin_cap);
         transfer::share_object(CoinBag { id: object::new(ctx), size: 0 });

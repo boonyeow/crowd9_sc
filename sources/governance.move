@@ -4,7 +4,7 @@ module crowd9_sc::governance {
     use sui::table::{Self, Table};
     use sui::vec_set::{Self, VecSet};
     use sui::coin::{Self, Coin};
-    use sui::balance::{Self, Balance};
+    use sui::balance::{Balance};
     use sui::tx_context::{Self};
     use sui::linked_table::{Self, LinkedTable};
     use sui::clock::{Self, Clock};
@@ -21,6 +21,10 @@ module crowd9_sc::governance {
     const SSuccess: u8 = 2;
     const SFailure: u8 = 3;
     const SAborted: u8 = 4;
+    const SExecuted: u8 = 5;
+
+    const PRefund: u8 = 0;
+    const PAdjustment: u8 = 1;
 
     const EDuplicatedVotes: u64 = 001;
     const EUnauthorizedUser: u64 = 002;
@@ -34,8 +38,15 @@ module crowd9_sc::governance {
     const ECircularDelegation: u64 = 009;
     const EInvalidVoteChoice: u64 = 010;
 
+    const PROPOSAL_DURATION: u64 = 259200 * 1000;
+    // 3 days
+    const PROPOSAL_CREATE_THRESHOLD: u64 = 5 / 1000;
+    const QUORUM_THRESHOLD: u64 = 5 / 100;
+    const APPROVAL_THRESHOLD: u64 = 67 / 100;
+
     struct Governance<phantom X, phantom Y> has key, store {
         id: UID,
+        creator: address,
         // X = raised coin type
         treasury: Balance<X>,
         // Y = governance coin type
@@ -43,10 +54,25 @@ module crowd9_sc::governance {
         store: LinkedTable<address, u64>,
         delegations: LinkedTable<address, DelegationInfo>,
         proposal_data: Table<ID, Proposal>,
+        tap_info: TapInfo,
         total_supply: u64,
         ongoing: bool,
-        poof: Balance<Y>,
         refund_amount: u64,
+        setting: GovernanceSetting,
+        execution_sequence: vector<ID>
+    }
+
+    struct TapInfo has store {
+        tap_rate: u64,
+        last_max_withdrawable: u64,
+        last_withdrawn_timestamp: u64
+    }
+
+    struct GovernanceSetting has store {
+        proposal_threshold: u64,
+        quorum_threshold: u64,
+        // minimum participation
+        approval_threshold: u64,
     }
 
     struct Proposal has key, store {
@@ -59,7 +85,7 @@ module crowd9_sc::governance {
         against: Vote,
         abstain: Vote,
         snapshot: LinkedTable<address, u64>,
-        start_timestamp: u64
+        start_timestamp: u64,
     }
 
     struct Vote has store {
@@ -74,23 +100,32 @@ module crowd9_sc::governance {
     }
 
     public fun create_governance<X, Y>(
+        creator: address,
         treasury: Balance<X>,
         deposits: Balance<Y>,
         store: LinkedTable<address, u64>,
         total_supply: u64,
+        clock: &Clock,
         ctx: &mut TxContext
     ): Governance<X, Y> {
         Governance {
             id: object::new(ctx),
+            creator,
             treasury,
             deposits,
             store,
             delegations: linked_table::new(ctx),
             proposal_data: table::new(ctx),
+            tap_info: TapInfo {
+                tap_rate: 0, last_max_withdrawable: 0, last_withdrawn_timestamp: clock::timestamp_ms(
+                    clock
+                )
+            },
             total_supply,
-            poof: balance::zero(),
             ongoing: true,
-            refund_amount: 0
+            refund_amount: 0,
+            setting: GovernanceSetting { proposal_threshold: total_supply * PROPOSAL_CREATE_THRESHOLD, quorum_threshold: total_supply * QUORUM_THRESHOLD, approval_threshold: APPROVAL_THRESHOLD },
+            execution_sequence: vector::empty()
         }
     }
 
@@ -211,9 +246,25 @@ module crowd9_sc::governance {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
+        assert!(governance.ongoing, EInvalidAction);
+        assert!(type == PAdjustment || type == PRefund, 0); // TODO: update error
+
+        if (type == PAdjustment) {
+            assert!(option::is_some(&proposed_tap_rate), 0); // TODO: update error code
+        } else {
+            assert!(!governance.ongoing, 0); // TODO: update error code
+        };
+
         let sender = tx_context::sender(ctx);
         let store = &governance.store;
-        assert!(linked_table::contains(store, sender), 0); // TODO: update error status
+        assert!(
+            (linked_table::contains(store, sender) && linked_table::borrow(
+                &governance.delegations,
+                sender
+            ).current_voting_power >= governance.setting.proposal_threshold) || sender == governance.creator,
+            0
+        ); // TODO: update error code
+
 
         let snapshot = linked_table::new<address, u64>(ctx);
         let delegations = &governance.delegations;
@@ -243,8 +294,9 @@ module crowd9_sc::governance {
             snapshot,
             start_timestamp: clock::timestamp_ms(clock) // Adjust as needed
         };
-
-        table::add(&mut governance.proposal_data, object::id(&proposal), proposal);
+        let proposal_id = object::id(&proposal);
+        vector::push_back(&mut governance.execution_sequence, proposal_id);
+        table::add(&mut governance.proposal_data, proposal_id, proposal);
     }
 
     public fun vote_proposal<X, Y>(
@@ -302,22 +354,81 @@ module crowd9_sc::governance {
         }
     }
 
-    /// TODO: Incomplete
+    /// TODO: To check
     public fun end_proposal<X, Y>(
-        _governance: &mut Governance<X, Y>,
+        governance: &mut Governance<X, Y>,
         proposal: &mut Proposal,
-        _ctx: &mut TxContext
+        clock: &Clock,
     ) {
         assert!(proposal.status == SActive, EInvalidAction);
+        assert!(clock::timestamp_ms(clock) > proposal.start_timestamp + PROPOSAL_DURATION, 0); //TODO: update error code
+
+        let proposal_id = object::id(proposal);
+        let quorum = governance.total_supply * QUORUM_THRESHOLD / 100;
+        let total_votes = governance.total_supply;
+        let total_votes_casted = proposal.for.count + proposal.against.count + proposal.abstain.count;
+        let no_votes = total_votes - total_votes_casted;
+
+        if (total_votes_casted >= quorum && no_votes + proposal.for.count > governance.setting.approval_threshold) {
+            proposal.status = SSuccess;
+        } else {
+            proposal.status = SFailure;
+            let (_, proposal_index) = vector::index_of(&governance.execution_sequence, &proposal_id);
+            vector::remove(&mut governance.execution_sequence, proposal_index);
+        }
+    }
+
+    public fun execute_proposal<X, Y>(governance: &mut Governance<X, Y>, proposal: &mut Proposal, clock: &Clock) {
+        assert!(proposal.status == SSuccess, 0); // TODO: update error code
+
+        if (proposal.type == PAdjustment) {
+            let tap_info = &mut governance.tap_info;
+            let proposed_tap_rate = *option::borrow(&proposal.proposed_tap_rate);
+            let current_timestamp = clock::timestamp_ms(clock);
+            tap_info.last_max_withdrawable = tap_info.last_max_withdrawable + (current_timestamp - tap_info.last_withdrawn_timestamp) * tap_info.tap_rate;
+            tap_info.tap_rate = proposed_tap_rate;
+            tap_info.last_withdrawn_timestamp = current_timestamp;
+        } else {
+            // else if (proposal.type == PRefund)
+            governance.ongoing = false;
+        };
+
+        proposal.status = SExecuted;
+
+        let proposal_id = object::id(proposal);
+        let (_, proposal_index) = vector::index_of(&governance.execution_sequence, &proposal_id);
+        vector::remove(&mut governance.execution_sequence, proposal_index);
+    }
+
+    public fun cancel_proposal<X, Y>(governance: &mut Governance<X, Y>, proposal: &mut Proposal, ctx: &mut TxContext) {
+        assert!(proposal.status == SActive || proposal.status == SSuccess, 0); // TODO: update error code
+        let sender = tx_context::sender(ctx);
+        assert!(proposal.proposer == sender, 0); // TODO: update error code
+
+        let proposal_id = object::id(proposal);
+        proposal.status = SAborted;
+        let (_, proposal_index) = vector::index_of(&governance.execution_sequence, &proposal_id);
+        vector::remove(&mut governance.execution_sequence, proposal_index);
     }
 
     public fun claim_refund<X, Y>(governance: &mut Governance<X, Y>, coins: Coin<Y>, ctx: &mut TxContext): Coin<X> {
         // TODO: Check division for correctness
         assert!(!governance.ongoing, EInvalidAction);
         let y_value_deposited = coin::value(&coins);
-        coin::put(&mut governance.poof, coins);
+        coin::put(&mut governance.deposits, coins);
 
         let x_value_to_refund = y_value_deposited / governance.total_supply * governance.refund_amount;
         coin::take(&mut governance.treasury, x_value_to_refund, ctx)
+    }
+
+    public fun withdraw_funds<X, Y>(governance: &mut Governance<X, Y>, clock: &Clock, ctx: &mut TxContext): Coin<X> {
+        let sender = tx_context::sender(ctx);
+        assert!(governance.ongoing && governance.creator == sender, EInvalidAction);
+
+        let tap_info = &mut governance.tap_info;
+        let max_withdrawable = tap_info.last_max_withdrawable + (clock::timestamp_ms(
+            clock
+        ) - tap_info.last_withdrawn_timestamp) * tap_info.tap_rate;
+        coin::take(&mut governance.treasury, max_withdrawable, ctx)
     }
 }
