@@ -7,6 +7,7 @@ module crowd9_sc::campaign {
     use sui::tx_context::{Self, TxContext};
     use sui::transfer::{Self};
     use sui::clock::{Self, Clock};
+    use sui::math::{Self};
     use crowd9_sc::coin_manager::{Self, CoinBag};
     use crowd9_sc::governance::{Self};
 
@@ -199,8 +200,13 @@ module crowd9_sc::campaign {
         let (treasury_cap, metadata) = coin_manager::remove<Y>(coin_bag);
         let contributions = option::extract(&mut campaign.contributions);
 
+        let decimals = coin::get_decimals<Y>(&metadata);
+        let scale_factor = math::pow(10, decimals);
         let governance_tokens_to_mint = balance::value(&campaign.balance);
-        let governance_token = coin::into_balance(coin::mint<Y>(&mut treasury_cap, governance_tokens_to_mint, ctx));
+        let governance_token = coin::into_balance(
+            coin::mint<Y>(&mut treasury_cap, governance_tokens_to_mint * scale_factor, ctx)
+        );
+
         let treasury_tokens = balance::withdraw_all(&mut campaign.balance);
 
         let governance = governance::create_governance(

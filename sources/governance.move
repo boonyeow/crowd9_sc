@@ -8,6 +8,7 @@ module crowd9_sc::governance {
     use sui::tx_context::{Self};
     use sui::linked_table::{Self, LinkedTable};
     use sui::clock::{Self, Clock};
+    use crowd9_sc::lib::{Self};
     use std::option::{Self, Option};
     use std::vector::{Self};
 
@@ -38,11 +39,15 @@ module crowd9_sc::governance {
     const ECircularDelegation: u64 = 009;
     const EInvalidVoteChoice: u64 = 010;
 
-    const PROPOSAL_DURATION: u64 = 259200 * 1000;
     // 3 days
-    const PROPOSAL_CREATE_THRESHOLD: u64 = 5 / 1000;
-    const QUORUM_THRESHOLD: u64 = 5 / 100;
-    const APPROVAL_THRESHOLD: u64 = 67 / 100;
+    const PROPOSAL_DURATION: u64 = 259200 * 1000;
+    // 0.5% of total votes to create proposal
+    const PROPOSAL_CREATE_THRESHOLD: u64 = 5;
+    // 5% of total votes for proposal to be considered valid
+    const QUORUM_THRESHOLD: u64 = 50;
+    // 66.7% for proposal to be approved
+    const APPROVAL_THRESHOLD: u64 = 667;
+    const THRESHOLD_DENOMINATOR: u64 = 1000;
 
     struct Governance<phantom X, phantom Y> has key, store {
         id: UID,
@@ -255,13 +260,19 @@ module crowd9_sc::governance {
             assert!(!governance.ongoing, 0); // TODO: update error code
         };
 
+        let min_votes_required = lib::mul_div_u64(
+            governance.total_supply,
+            PROPOSAL_CREATE_THRESHOLD,
+            THRESHOLD_DENOMINATOR
+        );
+
         let sender = tx_context::sender(ctx);
         let store = &governance.store;
         assert!(
             (linked_table::contains(store, sender) && linked_table::borrow(
                 &governance.delegations,
                 sender
-            ).current_voting_power >= governance.setting.proposal_threshold) || sender == governance.creator,
+            ).current_voting_power >= min_votes_required) || sender == governance.creator,
             0
         ); // TODO: update error code
 
@@ -364,12 +375,13 @@ module crowd9_sc::governance {
         assert!(clock::timestamp_ms(clock) > proposal.start_timestamp + PROPOSAL_DURATION, 0); //TODO: update error code
 
         let proposal_id = object::id(proposal);
-        let quorum = governance.total_supply * QUORUM_THRESHOLD / 100;
+        let quorum = lib::mul_div_u64(governance.total_supply, QUORUM_THRESHOLD, THRESHOLD_DENOMINATOR);
+        let approval = lib::mul_div_u64(governance.total_supply, APPROVAL_THRESHOLD, THRESHOLD_DENOMINATOR);
         let total_votes = governance.total_supply;
         let total_votes_casted = proposal.for.count + proposal.against.count + proposal.abstain.count;
         let no_votes = total_votes - total_votes_casted;
 
-        if (total_votes_casted >= quorum && no_votes + proposal.for.count > governance.setting.approval_threshold) {
+        if (total_votes_casted >= quorum && no_votes + proposal.for.count > approval) {
             proposal.status = SSuccess;
         } else {
             proposal.status = SFailure;
@@ -389,7 +401,6 @@ module crowd9_sc::governance {
             tap_info.tap_rate = proposed_tap_rate;
             tap_info.last_withdrawn_timestamp = current_timestamp;
         } else {
-            // else if (proposal.type == PRefund)
             governance.ongoing = false;
         };
 
@@ -412,12 +423,10 @@ module crowd9_sc::governance {
     }
 
     public fun claim_refund<X, Y>(governance: &mut Governance<X, Y>, coins: Coin<Y>, ctx: &mut TxContext): Coin<X> {
-        // TODO: Check division for correctness
         assert!(!governance.ongoing, EInvalidAction);
         let y_value_deposited = coin::value(&coins);
         coin::put(&mut governance.deposits, coins);
-
-        let x_value_to_refund = y_value_deposited / governance.total_supply * governance.refund_amount;
+        let x_value_to_refund = lib::mul_div_u64(y_value_deposited, governance.refund_amount, governance.total_supply);
         coin::take(&mut governance.treasury, x_value_to_refund, ctx)
     }
 
