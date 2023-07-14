@@ -8,6 +8,7 @@ module crowd9_sc::campaign {
     use sui::transfer::{Self};
     use sui::clock::{Self, Clock};
     use sui::math::{Self};
+    use sui::event::{Self};
     use crowd9_sc::coin_manager::{Self, CoinBag};
     use crowd9_sc::governance::{Self};
 
@@ -52,6 +53,12 @@ module crowd9_sc::campaign {
         owner_cap_id: ID,
     }
 
+    /// ======= Events =======
+    struct CampaignEvent has copy, drop {
+        campaign_id: ID,
+        status: u8,
+    }
+
     fun get_duration(duration_type: u8): u64 {
         assert!(duration_type < 3, EInvalidDuration);
         if (duration_type == 0) {
@@ -91,6 +98,12 @@ module crowd9_sc::campaign {
             owner_cap_id: object::id(&owner_cap),
         };
 
+
+        event::emit(CampaignEvent {
+            campaign_id: object::id(&campaign),
+            status: campaign.status
+        });
+
         transfer::share_object(campaign);
         transfer::transfer(owner_cap, creator);
     }
@@ -129,6 +142,11 @@ module crowd9_sc::campaign {
 
         campaign.status = SActive;
         campaign.start_timestamp = clock::timestamp_ms(clock);
+
+        event::emit(CampaignEvent {
+            campaign_id: object::id(campaign),
+            status: campaign.status
+        });
     }
 
     // Check what happens if Campaign uses COIN A, and USER tries to pass in COIN B as T
@@ -157,28 +175,36 @@ module crowd9_sc::campaign {
         assert!(object::id(owner_cap) == campaign.owner_cap_id, EUnauthorizedUser);
         assert!(campaign.status == SActive, EDisallowedAction);
         campaign.status = SCancelled;
+
+        event::emit(CampaignEvent {
+            campaign_id: object::id(campaign),
+            status: campaign.status
+        });
     }
 
     // Cancel -> when proj status is active, only admin cap holder can call
     // Expire -> when current timestamp > proj duration && funds < goal, anyone can call it (to claim their locked funds)
     // End -> when current timestamp > proj duration && funds > goal, moving to next stage (governance), only proj creator can call
-    public fun end<X>(campaign: &mut Campaign<X>) {
-        assert!(campaign.status == SActive, EDisallowedAction);
+    public fun end<X>(campaign: &mut Campaign<X>, clock: &Clock) {
+        assert!(campaign.status == SActive && clock::timestamp_ms(clock) > campaign.start_timestamp, EDisallowedAction);
         let total_raised = balance::value(&campaign.balance);
         if (total_raised < campaign.funding_goal) {
             campaign.status = SFailure;
         } else {
             campaign.status == SSuccess;
-        }
+        };
+
+        event::emit(CampaignEvent {
+            campaign_id: object::id(campaign),
+            status: campaign.status
+        });
     }
 
-    public fun claim_funds<T>(campaign: &mut Campaign<T>, contributor: address, ctx: &mut TxContext) {
+    public fun process_refund<T>(campaign: &mut Campaign<T>, ctx: &mut TxContext) {
         assert!(campaign.status == SFailure || campaign.status == SCancelled, EDisallowedAction);
         assert!(option::is_some(&campaign.contributions), EDisallowedAction);
 
         let contributions = option::extract(&mut campaign.contributions);
-        assert!(linked_table::contains(&contributions, contributor), ENoContributionFound);
-
         while (!linked_table::is_empty(&contributions)) {
             let (contributor, no_of_tokens_purchased) = linked_table::pop_back(&mut contributions);
             let coin = coin::take(&mut campaign.balance, no_of_tokens_purchased * campaign.price_per_token, ctx);
@@ -221,5 +247,10 @@ module crowd9_sc::campaign {
         transfer::public_share_object(governance);
         transfer::public_freeze_object(treasury_cap);
         transfer::public_transfer(metadata, campaign.creator);
+
+        event::emit(CampaignEvent {
+            campaign_id: object::id(campaign),
+            status: campaign.status
+        });
     }
 }
