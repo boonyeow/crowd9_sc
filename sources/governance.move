@@ -368,12 +368,15 @@ module crowd9_sc::governance {
     public fun end_proposal<X, Y>(
         governance: &mut Governance<X, Y>,
         proposal: &mut Proposal,
-        clock: &Clock,
+        _clock: &Clock,
     ) {
-        assert!(
-            proposal.status == SActive || clock::timestamp_ms(clock) > proposal.start_timestamp + PROPOSAL_DURATION,
-            EInvalidAction
-        );
+        // TODO: uncomment later
+        // assert!(
+        //     proposal.status == SActive || clock::timestamp_ms(clock) > proposal.start_timestamp + PROPOSAL_DURATION,
+        //     EInvalidAction
+        // );
+
+        assert!(proposal.status == SActive, EInvalidAction);
 
         let proposal_id = object::id(proposal);
         let quorum = lib::mul_div_u64(governance.total_supply, QUORUM_THRESHOLD, THRESHOLD_DENOMINATOR);

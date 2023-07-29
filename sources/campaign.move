@@ -150,11 +150,12 @@ module crowd9_sc::campaign {
     }
 
     // Check what happens if Campaign uses COIN A, and USER tries to pass in COIN B as T
-    public entry fun contribute<X>(coins: Coin<X>, campaign: &mut Campaign<X>, clock: &Clock, ctx: &mut TxContext) {
+    public entry fun contribute<X>(coins: Coin<X>, campaign: &mut Campaign<X>, _clock: &Clock, ctx: &mut TxContext) {
         let contributor = tx_context::sender(ctx);
         let coin_value = coin::value(&coins);
         assert!(campaign.creator != contributor, EUnauthorizedUser);
-        assert!(clock::timestamp_ms(clock) <= (campaign.start_timestamp + campaign.duration), ECampaignEnded);
+        // TODO: uncomment later
+        // assert!(clock::timestamp_ms(clock) <= (campaign.start_timestamp + campaign.duration), ECampaignEnded);
         assert!(campaign.status == SActive, EDisallowedAction);
         assert!(coin_value % campaign.price_per_token == 0, EInvalidCoinAmount);
 
@@ -185,8 +186,10 @@ module crowd9_sc::campaign {
     // Cancel -> when proj status is active, only admin cap holder can call
     // Expire -> when current timestamp > proj duration && funds < goal, anyone can call it (to claim their locked funds)
     // End -> when current timestamp > proj duration && funds > goal, moving to next stage (governance), only proj creator can call
-    public fun end<X>(campaign: &mut Campaign<X>, clock: &Clock) {
-        assert!(campaign.status == SActive && clock::timestamp_ms(clock) > campaign.start_timestamp, EDisallowedAction);
+    public fun end<X>(campaign: &mut Campaign<X>, _clock: &Clock) {
+        // TODO: uncomment later
+        // assert!(campaign.status == SActive && clock::timestamp_ms(clock) > campaign.start_timestamp, EDisallowedAction);
+        assert!(campaign.status == SActive, EDisallowedAction);
         let total_raised = balance::value(&campaign.balance);
         if (total_raised < campaign.funding_goal) {
             campaign.status = SFailure;
