@@ -11,6 +11,9 @@ module crowd9_sc::campaign {
     use sui::event::{Self};
     use crowd9_sc::coin_manager::{Self, CoinBag};
     use crowd9_sc::governance::{Self};
+    use std::type_name::{Self};
+    use std::ascii::String;
+
 
     /// ======= Constants =======
     /// Error Codes
@@ -57,6 +60,13 @@ module crowd9_sc::campaign {
     struct CampaignEvent has copy, drop {
         campaign_id: ID,
         status: u8,
+    }
+
+    struct CreateGovernanceEvent has copy, drop {
+        campaign_id: ID,
+        governance_id: ID,
+        status: u8,
+        coin_type: String
     }
 
     fun get_duration(duration_type: u8): u64 {
@@ -108,10 +118,16 @@ module crowd9_sc::campaign {
         transfer::transfer(owner_cap, creator);
     }
 
+    #[test_only]
+    public entry fun update_campaign_status<X>(campaign: &mut Campaign<X>, status: u8) {
+        campaign.status = status
+    }
+
     public entry fun update<X>(
         campaign: &mut Campaign<X>,
         name: Option<vector<u8>>,
         description: Option<vector<u8>>,
+        price_per_token: Option<u64>,
         funding_goal: Option<u64>,
         duration_type: Option<u8>,
         owner_cap: &OwnerCap
@@ -125,6 +141,10 @@ module crowd9_sc::campaign {
 
         if (option::is_some(&description)) {
             campaign.description = option::destroy_some(description)
+        };
+
+        if (option::is_some(&price_per_token)) {
+            campaign.price_per_token = option::destroy_some(price_per_token)
         };
 
         if (option::is_some(&funding_goal)) {
@@ -172,10 +192,11 @@ module crowd9_sc::campaign {
         };
     }
 
-    public entry fun cancel<X>(campaign: &mut Campaign<X>, owner_cap: &OwnerCap) {
+    public entry fun cancel<X>(campaign: &mut Campaign<X>, owner_cap: &OwnerCap, ctx: &mut TxContext) {
         assert!(object::id(owner_cap) == campaign.owner_cap_id, EUnauthorizedUser);
         assert!(campaign.status == SActive, EDisallowedAction);
         campaign.status = SCancelled;
+        process_refund<X>(campaign, ctx);
 
         event::emit(CampaignEvent {
             campaign_id: object::id(campaign),
@@ -186,15 +207,16 @@ module crowd9_sc::campaign {
     // Cancel -> when proj status is active, only admin cap holder can call
     // Expire -> when current timestamp > proj duration && funds < goal, anyone can call it (to claim their locked funds)
     // End -> when current timestamp > proj duration && funds > goal, moving to next stage (governance), only proj creator can call
-    public fun end<X>(campaign: &mut Campaign<X>, _clock: &Clock) {
+    public fun end<X>(campaign: &mut Campaign<X>, _clock: &Clock, ctx: &mut TxContext) {
         // TODO: uncomment later
         // assert!(campaign.status == SActive && clock::timestamp_ms(clock) > campaign.start_timestamp, EDisallowedAction);
         assert!(campaign.status == SActive, EDisallowedAction);
         let total_raised = balance::value(&campaign.balance);
         if (total_raised < campaign.funding_goal) {
             campaign.status = SFailure;
+            process_refund<X>(campaign, ctx);
         } else {
-            campaign.status == SSuccess;
+            campaign.status = SSuccess;
         };
 
         event::emit(CampaignEvent {
@@ -203,10 +225,7 @@ module crowd9_sc::campaign {
         });
     }
 
-    public fun process_refund<T>(campaign: &mut Campaign<T>, ctx: &mut TxContext) {
-        assert!(campaign.status == SFailure || campaign.status == SCancelled, EDisallowedAction);
-        assert!(option::is_some(&campaign.contributions), EDisallowedAction);
-
+    fun process_refund<T>(campaign: &mut Campaign<T>, ctx: &mut TxContext) {
         let contributions = option::extract(&mut campaign.contributions);
         while (!linked_table::is_empty(&contributions)) {
             let (contributor, no_of_tokens_purchased) = linked_table::pop_back(&mut contributions);
@@ -247,13 +266,34 @@ module crowd9_sc::campaign {
             clock,
             ctx
         );
+
+        let governance_id = object::id(&governance);
+
         transfer::public_share_object(governance);
         transfer::public_freeze_object(treasury_cap);
         transfer::public_transfer(metadata, campaign.creator);
 
-        event::emit(CampaignEvent {
+        event::emit(CreateGovernanceEvent {
             campaign_id: object::id(campaign),
-            status: campaign.status
+            governance_id,
+            status: campaign.status,
+            coin_type: type_name::into_string(type_name::get<Y>())
         });
+    }
+
+    #[test_only]
+    public fun verify_campaign_details<T>(
+        campaign: &Campaign<T>,
+        name: vector<u8>,
+        description: vector<u8>,
+        price_per_token: u64,
+        funding_goal: u64,
+        duration_type: u8
+    ): bool {
+        return campaign.name == name &&
+            campaign.description == description &&
+            campaign.price_per_token == price_per_token &&
+            campaign.funding_goal == funding_goal &&
+            campaign.duration == get_duration(duration_type)
     }
 }

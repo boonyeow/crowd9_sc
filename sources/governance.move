@@ -50,12 +50,12 @@ module crowd9_sc::governance {
     const APPROVAL_THRESHOLD: u64 = 667;
     const THRESHOLD_DENOMINATOR: u64 = 1000;
 
+    // X = raised coin type
+    // Y = governance coin type
     struct Governance<phantom X, phantom Y> has key, store {
         id: UID,
         creator: address,
-        // X = raised coin type
         treasury: Balance<X>,
-        // Y = governance coin type
         deposits: Balance<Y>,
         store: LinkedTable<address, u64>,
         delegations: LinkedTable<address, DelegationInfo>,
@@ -130,7 +130,11 @@ module crowd9_sc::governance {
             total_supply,
             ongoing: true,
             refund_amount: 0,
-            setting: GovernanceSetting { proposal_threshold: total_supply * PROPOSAL_CREATE_THRESHOLD, quorum_threshold: total_supply * QUORUM_THRESHOLD, approval_threshold: APPROVAL_THRESHOLD },
+            setting: GovernanceSetting {
+                proposal_threshold: total_supply * PROPOSAL_CREATE_THRESHOLD,
+                quorum_threshold: total_supply * QUORUM_THRESHOLD,
+                approval_threshold: APPROVAL_THRESHOLD
+            },
             execution_sequence: vector::empty()
         }
     }
