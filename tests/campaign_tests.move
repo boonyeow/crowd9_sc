@@ -1,8 +1,7 @@
 #[test_only]
 module crowd9_sc::campaign_tests {
-    use crowd9_sc::campaign::{Self, Campaign, OwnerCap, update, verify_campaign_details};
-    use sui::test_scenario::{Self as ts, Scenario, return_to_address};
-    use sui::transfer::{Self};
+    use crowd9_sc::campaign::{Self, Campaign, OwnerCap};
+    use sui::test_scenario::{Self as ts, Scenario};
     use sui::sui::SUI;
     use std::option::{Self};
 
@@ -50,7 +49,7 @@ module crowd9_sc::campaign_tests {
     }
 
     fun end_scenario<T>(user: address, owner_cap: OwnerCap, campaign: Campaign<T>, scenario_val: Scenario) {
-        ts::return_to_address(ALICE, owner_cap);
+        ts::return_to_address(user, owner_cap);
         ts::return_shared(campaign);
         ts::end(scenario_val);
     }
@@ -112,7 +111,7 @@ module crowd9_sc::campaign_tests {
 
         ts::next_tx(scenario, ALICE);
         {
-            assert!(verify_campaign_details(
+            assert!(campaign::verify_campaign_details(
                 &campaign,
                 INITIAL_CAMPAIGN_NAME,
                 INITIAL_CAMPAIGN_DESCRIPTION,
@@ -125,7 +124,7 @@ module crowd9_sc::campaign_tests {
             let new_campaign_funding_goal = 40000;
             let new_campaign_duration_type = 2;
 
-            update(&mut campaign,
+            campaign::update(&mut campaign,
                 option::some(new_campaign_name),
                 option::some(new_campaign_description),
                 option::some(new_campaign_price_per_token),
@@ -134,7 +133,7 @@ module crowd9_sc::campaign_tests {
                 &owner_cap);
 
             assert!(
-                verify_campaign_details(
+                campaign::verify_campaign_details(
                     &campaign,
                     new_campaign_name,
                     new_campaign_description,

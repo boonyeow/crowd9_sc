@@ -83,6 +83,8 @@ module crowd9_sc::governance {
 
     struct Proposal has key, store {
         id: UID,
+        name: vector<u64>,
+        description: vector<u64>,
         proposer: address,
         type: u8,
         status: u8,
@@ -250,6 +252,8 @@ module crowd9_sc::governance {
 
     public entry fun create_proposal<X, Y>(
         governance: &mut Governance<X, Y>,
+        name: vector<u64>,
+        description: vector<u64>,
         type: u8,
         proposed_tap_rate: Option<u64>,
         clock: &Clock,
@@ -298,6 +302,8 @@ module crowd9_sc::governance {
         // Might want to reconsider using vec_set so we can handle >1k limit
         let proposal = Proposal {
             id: object::new(ctx),
+            name,
+            description,
             proposer: sender,
             type,
             status: SActive,
