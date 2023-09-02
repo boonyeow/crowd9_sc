@@ -788,4 +788,63 @@ module crowd9_sc::campaign_tests {
 
         end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
     }
+
+    #[test, expected_failure(abort_code = crowd9_sc::campaign::EDisallowedAction)]
+    fun end_campaign_before_stipulated_duration() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+            scenario,
+            ALICE,
+            INITIAL_PRICE_PER_TOKEN,
+            INITIAL_FUNDING_GOAL
+        );
+
+        ts::next_tx(scenario, ALICE);
+        {
+            campaign::start(&mut campaign, &owner_cap, &clock);
+        };
+
+        let contribution_amount = 5000;
+        ts::next_tx(scenario, BOB);
+        {
+            let user = tx_context::sender(ts::ctx(scenario));
+            campaign::contribute(
+                take_coins<SUI>(scenario, user, contribution_amount),
+                &mut campaign,
+                &clock,
+                ts::ctx(scenario)
+            );
+        };
+
+        ts::next_tx(scenario, BOB);
+        {
+            let user = tx_context::sender(ts::ctx(scenario));
+            campaign::contribute(
+                take_coins<SUI>(scenario, user, contribution_amount),
+                &mut campaign,
+                &clock,
+                ts::ctx(scenario)
+            );
+        };
+
+        ts::next_tx(scenario, CAROL);
+        {
+            let user = tx_context::sender(ts::ctx(scenario));
+            campaign::contribute(
+                take_coins<SUI>(scenario, user, contribution_amount),
+                &mut campaign,
+                &clock,
+                ts::ctx(scenario)
+            );
+        };
+
+        clock::increment_for_testing(&mut clock, MS_IN_A_DAY * 7);
+        ts::next_tx(scenario, ALICE);
+        {
+            campaign::end(&mut campaign, &clock, ts::ctx(scenario));
+        };
+
+        end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
+    }
 }

@@ -208,7 +208,10 @@ module crowd9_sc::campaign {
     // End -> when current timestamp > proj duration && funds > goal, moving to next stage (governance), only proj creator can call
     public fun end<X>(campaign: &mut Campaign<X>, clock: &Clock, ctx: &mut TxContext) {
         // TODO: uncomment later
-        assert!(campaign.status == SActive && clock::timestamp_ms(clock) > campaign.start_timestamp, EDisallowedAction);
+        assert!(
+            campaign.status == SActive && clock::timestamp_ms(clock) > (campaign.start_timestamp + campaign.duration),
+            EDisallowedAction
+        );
         // assert!(campaign.status == SActive, EDisallowedAction);
         let total_raised = balance::value(&campaign.balance);
         if (total_raised < campaign.funding_goal) {
