@@ -83,8 +83,8 @@ module crowd9_sc::governance {
 
     struct Proposal has key, store {
         id: UID,
-        name: vector<u64>,
-        description: vector<u64>,
+        name: vector<u8>,
+        description: vector<u8>,
         proposer: address,
         type: u8,
         status: u8,
@@ -94,6 +94,7 @@ module crowd9_sc::governance {
         abstain: Vote,
         snapshot: LinkedTable<address, u64>,
         start_timestamp: u64,
+        total_votes: u64
     }
 
     struct Vote has store {
@@ -252,8 +253,8 @@ module crowd9_sc::governance {
 
     public entry fun create_proposal<X, Y>(
         governance: &mut Governance<X, Y>,
-        name: vector<u64>,
-        description: vector<u64>,
+        name: vector<u8>,
+        description: vector<u8>,
         type: u8,
         proposed_tap_rate: Option<u64>,
         clock: &Clock,
@@ -312,7 +313,8 @@ module crowd9_sc::governance {
             against: Vote { holders: vec_set::empty<address>(), count: 0 },
             abstain: Vote { holders: vec_set::empty<address>(), count: 0 },
             snapshot,
-            start_timestamp: clock::timestamp_ms(clock) // Adjust as needed
+            start_timestamp: clock::timestamp_ms(clock), // Adjust as needed
+            total_votes: governance.total_supply
         };
         let proposal_id = object::id(&proposal);
         vector::push_back(&mut governance.execution_sequence, proposal_id);

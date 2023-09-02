@@ -169,13 +169,12 @@ module crowd9_sc::campaign {
         });
     }
 
-    // Check what happens if Campaign uses COIN A, and USER tries to pass in COIN B as T
-    public entry fun contribute<X>(coins: Coin<X>, campaign: &mut Campaign<X>, _clock: &Clock, ctx: &mut TxContext) {
+    public entry fun contribute<X>(coins: Coin<X>, campaign: &mut Campaign<X>, clock: &Clock, ctx: &mut TxContext) {
         let contributor = tx_context::sender(ctx);
         let coin_value = coin::value(&coins);
         assert!(campaign.creator != contributor, EUnauthorizedUser);
         // TODO: uncomment later
-        // assert!(clock::timestamp_ms(clock) <= (campaign.start_timestamp + campaign.duration), ECampaignEnded);
+        assert!(clock::timestamp_ms(clock) <= (campaign.start_timestamp + campaign.duration), ECampaignEnded);
         assert!(campaign.status == SActive, EDisallowedAction);
         assert!(coin_value % campaign.price_per_token == 0, EInvalidCoinAmount);
 
@@ -207,10 +206,10 @@ module crowd9_sc::campaign {
     // Cancel -> when proj status is active, only admin cap holder can call
     // Expire -> when current timestamp > proj duration && funds < goal, anyone can call it (to claim their locked funds)
     // End -> when current timestamp > proj duration && funds > goal, moving to next stage (governance), only proj creator can call
-    public fun end<X>(campaign: &mut Campaign<X>, _clock: &Clock, ctx: &mut TxContext) {
+    public fun end<X>(campaign: &mut Campaign<X>, clock: &Clock, ctx: &mut TxContext) {
         // TODO: uncomment later
-        // assert!(campaign.status == SActive && clock::timestamp_ms(clock) > campaign.start_timestamp, EDisallowedAction);
-        assert!(campaign.status == SActive, EDisallowedAction);
+        assert!(campaign.status == SActive && clock::timestamp_ms(clock) > campaign.start_timestamp, EDisallowedAction);
+        // assert!(campaign.status == SActive, EDisallowedAction);
         let total_raised = balance::value(&campaign.balance);
         if (total_raised < campaign.funding_goal) {
             campaign.status = SFailure;
@@ -295,5 +294,24 @@ module crowd9_sc::campaign {
             campaign.price_per_token == price_per_token &&
             campaign.funding_goal == funding_goal &&
             campaign.duration == get_duration(duration_type)
+    }
+
+    #[test_only]
+    public fun verify_campaign_status<T>(campaign: &Campaign<T>, status: u8): bool {
+        return campaign.status == status
+    }
+
+    #[test_only]
+    public fun verify_contribution_amount<T>(
+        campaign: &Campaign<T>,
+        user: address,
+        total_contribution_by_user: u64,
+        total_contributions: u64,
+    ): bool {
+        let contributions = option::borrow(&campaign.contributions);
+        return balance::value(&campaign.balance) == total_contributions
+            && campaign.tokens_to_mint == total_contributions / campaign.price_per_token
+            && linked_table::contains(contributions, user)
+            && *linked_table::borrow(contributions, user) == total_contribution_by_user / campaign.price_per_token
     }
 }
