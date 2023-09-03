@@ -1,6 +1,7 @@
 #[test_only]
 module crowd9_sc::campaign_tests {
     use crowd9_sc::campaign::{Self, Campaign, OwnerCap, verify_campaign_status};
+    use crowd9_sc::coin_manager::{Self, AdminCap, CoinBag};
     use sui::test_scenario::{Self as ts, Scenario};
     use sui::sui::SUI;
     use std::option::{Self};
@@ -62,7 +63,7 @@ module crowd9_sc::campaign_tests {
         combined_balance
     }
 
-    fun init_scenario<T>(
+    fun init_campaign<T>(
         scenario: &mut Scenario,
         user: address,
         price_per_token: u64,
@@ -94,6 +95,16 @@ module crowd9_sc::campaign_tests {
         (campaign, owner_cap, clock)
     }
 
+    fun init_coin_manager(scenario: &mut Scenario, user: address): (AdminCap, CoinBag) {
+        ts::next_tx(scenario, user);
+        coin_manager::init_cm(ts::ctx(scenario));
+
+        let admin_cap = ts::take_shared<AdminCap>(scenario);
+        let coin_bag = ts::take_shared<CoinBag>(scenario);
+
+        (admin_cap, coin_bag)
+    }
+
     fun end_scenario<T>(
         user: address,
         owner_cap: OwnerCap,
@@ -111,7 +122,7 @@ module crowd9_sc::campaign_tests {
     fun update_campaign_disallowed_status() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -134,13 +145,13 @@ module crowd9_sc::campaign_tests {
     fun update_campaign_invalid_owner_cap() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign1, owner_cap1, clock1) = init_scenario<SUI>(
+        let (campaign1, owner_cap1, clock1) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
             INITIAL_FUNDING_GOAL
         );
-        let (campaign2, owner_cap2, clock2) = init_scenario<SUI>(
+        let (campaign2, owner_cap2, clock2) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -166,7 +177,7 @@ module crowd9_sc::campaign_tests {
     fun update_campaign() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -216,7 +227,7 @@ module crowd9_sc::campaign_tests {
     fun start_campaign() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -237,14 +248,14 @@ module crowd9_sc::campaign_tests {
     fun start_campaign_invalid_owner_cap() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign1, owner_cap1, clock1) = init_scenario<SUI>(
+        let (campaign1, owner_cap1, clock1) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
             INITIAL_FUNDING_GOAL
         );
 
-        let (campaign2, owner_cap2, clock2) = init_scenario<SUI>(
+        let (campaign2, owner_cap2, clock2) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -266,7 +277,7 @@ module crowd9_sc::campaign_tests {
     fun start_campaign_disallowed_status() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -291,7 +302,7 @@ module crowd9_sc::campaign_tests {
     fun contribute_to_campaign_authorized_user() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -353,7 +364,7 @@ module crowd9_sc::campaign_tests {
     fun contribute_to_campaign_disallowed_user() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -384,7 +395,7 @@ module crowd9_sc::campaign_tests {
     fun contribute_to_campaign_disallowed_status() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -407,7 +418,7 @@ module crowd9_sc::campaign_tests {
     fun contribute_to_campaign_invalid_coin_amount() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -470,7 +481,7 @@ module crowd9_sc::campaign_tests {
     fun contribute_to_campaign_after_campaign_duration() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -526,7 +537,7 @@ module crowd9_sc::campaign_tests {
     fun cancel_campaign() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -592,13 +603,13 @@ module crowd9_sc::campaign_tests {
     fun cancel_campaign_invalid_owner_cap() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign1, owner_cap1, clock1) = init_scenario<SUI>(
+        let (campaign1, owner_cap1, clock1) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
             INITIAL_FUNDING_GOAL
         );
-        let (campaign2, owner_cap2, clock2) = init_scenario<SUI>(
+        let (campaign2, owner_cap2, clock2) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -625,7 +636,7 @@ module crowd9_sc::campaign_tests {
     fun cancel_campaign_disallowed_status() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -655,7 +666,7 @@ module crowd9_sc::campaign_tests {
     fun end_campaign_goal_reached() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -711,6 +722,7 @@ module crowd9_sc::campaign_tests {
             assert!(get_coins_balance<SUI>(scenario, CAROL) == INITIAL_STARTING_COINS - contribution_amount, 1);
         };
 
+        // campaign::transition_to_governance()
         end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
     }
 
@@ -718,7 +730,7 @@ module crowd9_sc::campaign_tests {
     fun end_campaign_goal_failed() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -763,7 +775,7 @@ module crowd9_sc::campaign_tests {
     fun end_campaign_disallowed_status() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,
@@ -793,7 +805,7 @@ module crowd9_sc::campaign_tests {
     fun end_campaign_before_stipulated_duration() {
         let scenario_val = ts::begin(ALICE);
         let scenario = &mut scenario_val;
-        let (campaign, owner_cap, clock) = init_scenario<SUI>(
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
             scenario,
             ALICE,
             INITIAL_PRICE_PER_TOKEN,

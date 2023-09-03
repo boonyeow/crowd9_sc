@@ -94,7 +94,8 @@ module crowd9_sc::governance {
         abstain: Vote,
         snapshot: LinkedTable<address, u64>,
         start_timestamp: u64,
-        total_votes: u64
+        total_votes: u64,
+        governance_id: ID
     }
 
     struct Vote has store {
@@ -117,13 +118,26 @@ module crowd9_sc::governance {
         clock: &Clock,
         ctx: &mut TxContext
     ): Governance<X, Y> {
+        let delegations: LinkedTable<address, DelegationInfo> = linked_table::new(ctx);
+
+        let current_node = linked_table::front(&store);
+        while (option::is_some(current_node)) {
+            let user = *option::borrow(current_node);
+            let user_di = DelegationInfo {
+                current_voting_power: *linked_table::borrow(&store, user),
+                delegate_to: option::none(),
+                delegated_by: vector::empty()
+            };
+            linked_table::push_back(&mut delegations, user, user_di);
+        };
+
         Governance {
             id: object::new(ctx),
             creator,
             treasury,
             deposits,
             store,
-            delegations: linked_table::new(ctx),
+            delegations,
             proposal_data: table::new(ctx),
             tap_info: TapInfo {
                 tap_rate: 0, last_max_withdrawable: 0, last_withdrawn_timestamp: clock::timestamp_ms(
@@ -284,7 +298,6 @@ module crowd9_sc::governance {
             ENoPermission
         );
 
-
         let snapshot = linked_table::new<address, u64>(ctx);
         let delegations = &governance.delegations;
         let current_node = linked_table::front(delegations);
@@ -314,7 +327,8 @@ module crowd9_sc::governance {
             abstain: Vote { holders: vec_set::empty<address>(), count: 0 },
             snapshot,
             start_timestamp: clock::timestamp_ms(clock), // Adjust as needed
-            total_votes: governance.total_supply
+            total_votes: governance.total_supply,
+            governance_id: object::id(governance)
         };
         let proposal_id = object::id(&proposal);
         vector::push_back(&mut governance.execution_sequence, proposal_id);
@@ -380,14 +394,38 @@ module crowd9_sc::governance {
     public fun end_proposal<X, Y>(
         governance: &mut Governance<X, Y>,
         proposal: &mut Proposal,
-        _clock: &Clock,
+        clock: &Clock,
     ) {
         // TODO: uncomment later
-        // assert!(
-        //     proposal.status == SActive || clock::timestamp_ms(clock) > proposal.start_timestamp + PROPOSAL_DURATION,
-        //     EInvalidAction
-        // );
+        assert!(
+            proposal.status == SActive || clock::timestamp_ms(clock) > proposal.start_timestamp + PROPOSAL_DURATION,
+            EInvalidAction
+        );
 
+        assert!(proposal.status == SActive, EInvalidAction);
+
+        let proposal_id = object::id(proposal);
+        let quorum = lib::mul_div_u64(governance.total_supply, QUORUM_THRESHOLD, THRESHOLD_DENOMINATOR);
+        let approval = lib::mul_div_u64(governance.total_supply, APPROVAL_THRESHOLD, THRESHOLD_DENOMINATOR);
+        let total_votes = governance.total_supply;
+        let total_votes_casted = proposal.for.count + proposal.against.count + proposal.abstain.count;
+        let no_votes = total_votes - total_votes_casted;
+
+        if (total_votes_casted >= quorum && no_votes + proposal.for.count > approval) {
+            proposal.status = SSuccess;
+        } else {
+            proposal.status = SFailure;
+            let (_, proposal_index) = vector::index_of(&governance.execution_sequence, &proposal_id);
+            vector::remove(&mut governance.execution_sequence, proposal_index);
+        }
+    }
+
+    // w/o time dependency, to remove after testing
+    public fun end_proposal_force<X, Y>(
+        governance: &mut Governance<X, Y>,
+        proposal: &mut Proposal,
+        _clock: &Clock,
+    ) {
         assert!(proposal.status == SActive, EInvalidAction);
 
         let proposal_id = object::id(proposal);

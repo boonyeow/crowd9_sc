@@ -28,6 +28,13 @@ module crowd9_sc::coin_manager {
         transfer::share_object(CoinBag { id: object::new(ctx), size: 0 });
     }
 
+    #[test_only]
+    public fun init_cm(ctx: &mut TxContext) {
+        let admin_cap = AdminCap { id: object::new(ctx) };
+        transfer::share_object(admin_cap);
+        transfer::share_object(CoinBag { id: object::new(ctx), size: 0 });
+    }
+
     public entry fun add<T>(coin_bag: &mut CoinBag, treasury_cap: TreasuryCap<T>, metadata: CoinMetadata<T>) {
         assert!(coin::total_supply(&treasury_cap) == 0, 0);
         dynamic_field::add(&mut coin_bag.id, coin_bag.size, Currency { treasury_cap, metadata });

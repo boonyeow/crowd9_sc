@@ -212,7 +212,24 @@ module crowd9_sc::campaign {
             campaign.status == SActive && clock::timestamp_ms(clock) > (campaign.start_timestamp + campaign.duration),
             EDisallowedAction
         );
-        // assert!(campaign.status == SActive, EDisallowedAction);
+        assert!(campaign.status == SActive, EDisallowedAction);
+        let total_raised = balance::value(&campaign.balance);
+        if (total_raised < campaign.funding_goal) {
+            campaign.status = SFailure;
+            process_refund<X>(campaign, ctx);
+        } else {
+            campaign.status = SSuccess;
+        };
+
+        event::emit(CampaignEvent {
+            campaign_id: object::id(campaign),
+            status: campaign.status
+        });
+    }
+
+    // w/o time dependency, to remove after testing
+    public fun end_force<X>(campaign: &mut Campaign<X>, _clock: &Clock, ctx: &mut TxContext) {
+        assert!(campaign.status == SActive, EDisallowedAction);
         let total_raised = balance::value(&campaign.balance);
         if (total_raised < campaign.funding_goal) {
             campaign.status = SFailure;
