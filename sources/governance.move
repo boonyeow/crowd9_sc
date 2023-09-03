@@ -129,6 +129,7 @@ module crowd9_sc::governance {
                 delegated_by: vector::empty()
             };
             linked_table::push_back(&mut delegations, user, user_di);
+            current_node = linked_table::next(&store, user);
         };
 
         Governance {
