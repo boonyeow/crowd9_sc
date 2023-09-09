@@ -57,14 +57,16 @@ module crowd9_sc::governance {
         creator: address,
         treasury: Balance<X>,
         deposits: Balance<Y>,
-        store: LinkedTable<address, u64>,
-        delegations: LinkedTable<address, DelegationInfo>,
+        store: Table<address, u64>,
+        delegations: Table<address, DelegationInfo>,
         proposal_data: Table<ID, Proposal>,
         tap_info: TapInfo,
         total_supply: u64,
         ongoing: bool,
         refund_amount: u64,
         setting: GovernanceSetting,
+        participants: VecSet<address>,
+        // take note: 1k limit
         execution_sequence: vector<ID>
     }
 
@@ -92,7 +94,7 @@ module crowd9_sc::governance {
         for: Vote,
         against: Vote,
         abstain: Vote,
-        snapshot: LinkedTable<address, u64>,
+        snapshot: Table<address, u64>,
         start_timestamp: u64,
         total_votes: u64,
         governance_id: ID
@@ -113,24 +115,29 @@ module crowd9_sc::governance {
         creator: address,
         treasury: Balance<X>,
         deposits: Balance<Y>,
-        store: LinkedTable<address, u64>,
+        contributions: LinkedTable<address, u64>,
+        scale_factor: u64,
         total_supply: u64,
         clock: &Clock,
         ctx: &mut TxContext
     ): Governance<X, Y> {
-        let delegations: LinkedTable<address, DelegationInfo> = linked_table::new(ctx);
+        let delegations: Table<address, DelegationInfo> = table::new(ctx);
+        let store: Table<address, u64> = table::new(ctx);
 
-        let current_node = linked_table::front(&store);
-        while (option::is_some(current_node)) {
-            let user = *option::borrow(current_node);
+        let participants = vec_set::empty();
+        while (!linked_table::is_empty(&contributions)) {
+            let (user, no_of_tokens) = linked_table::pop_back(&mut contributions);
+            let current_voting_power = no_of_tokens * scale_factor;
             let user_di = DelegationInfo {
-                current_voting_power: *linked_table::borrow(&store, user),
+                current_voting_power,
                 delegate_to: option::none(),
                 delegated_by: vector::empty()
             };
-            linked_table::push_back(&mut delegations, user, user_di);
-            current_node = linked_table::next(&store, user);
+            table::add(&mut delegations, user, user_di);
+            table::add(&mut store, user, current_voting_power);
+            vec_set::insert(&mut participants, user);
         };
+        linked_table::destroy_empty(contributions);
 
         Governance {
             id: object::new(ctx),
@@ -153,6 +160,7 @@ module crowd9_sc::governance {
                 quorum_threshold: total_supply * QUORUM_THRESHOLD,
                 approval_threshold: APPROVAL_THRESHOLD
             },
+            participants,
             execution_sequence: vector::empty()
         }
     }
@@ -160,12 +168,29 @@ module crowd9_sc::governance {
     public entry fun deposit_coin<X, Y>(governance: &mut Governance<X, Y>, coins: Coin<Y>, ctx: &mut TxContext) {
         let sender = tx_context::sender(ctx);
         let store = &mut governance.store;
+        let amount = coin::value(&coins);
 
-        if (linked_table::contains(store, sender)) {
-            let existing_quantity = *linked_table::borrow(store, sender);
-            *linked_table::borrow_mut(store, sender) = existing_quantity + coin::value(&coins);
+        if (table::contains(store, sender)) {
+            let user_di = table::borrow_mut(&mut governance.delegations, sender);
+            let delegated_to = user_di.delegate_to;
+
+            let existing_quantity = *table::borrow(store, sender);
+            *table::borrow_mut(store, sender) = existing_quantity + amount;
+
+            if (option::is_some(&delegated_to)) {
+                let root = get_delegation_root(&governance.delegations, sender);
+                let root_di_mut = table::borrow_mut(&mut governance.delegations, root);
+                root_di_mut.current_voting_power = root_di_mut.current_voting_power + amount;
+            } else {
+                user_di.current_voting_power = user_di.current_voting_power + amount;
+            }
         } else {
-            linked_table::push_back(store, sender, coin::value(&coins));
+            let user_di = DelegationInfo {
+                current_voting_power: amount, delegate_to: option::none(), delegated_by: vector::empty()
+            };
+            table::add(&mut governance.delegations, sender, user_di);
+            table::add(store, sender, amount);
+            vec_set::insert(&mut governance.participants, sender);
         };
 
         coin::put(&mut governance.deposits, coins);
@@ -174,29 +199,51 @@ module crowd9_sc::governance {
     public fun withdraw_coin<X, Y>(governance: &mut Governance<X, Y>, amount: u64, ctx: &mut TxContext): Coin<Y> {
         let sender = tx_context::sender(ctx);
         let store = &mut governance.store;
-        assert!(linked_table::contains(store, sender), ENoPermission);
-        let existing_quantity = *linked_table::borrow(store, sender);
+        assert!(table::contains(store, sender), ENoPermission);
+        let existing_quantity = *table::borrow(store, sender);
         assert!(existing_quantity >= amount, EInsufficientBalance);
 
+        let user_di = table::borrow_mut(&mut governance.delegations, sender);
+        let delegated_to = user_di.delegate_to;
+
         if (existing_quantity == amount) {
-            let _ = linked_table::remove(store, sender);
+            // fella withdraw everything
+            let _ = table::remove(store, sender);
+            vec_set::remove(&mut governance.participants, &sender);
+            if (option::is_some(&delegated_to)) {
+                remove_delegate_internal(governance, sender);
+            };
+
+            let user_di = table::remove(&mut governance.delegations, sender);
+            let delegated_by = user_di.delegated_by;
+            while (!vector::is_empty(&delegated_by)) {
+                let user = vector::pop_back(&mut delegated_by);
+                remove_delegate_internal(governance, user);
+            };
         } else {
-            *linked_table::borrow_mut(store, sender) = existing_quantity - amount;
+            *table::borrow_mut(store, sender) = existing_quantity - amount;
+            if (option::is_some(&delegated_to)) {
+                let root = get_delegation_root(&governance.delegations, sender);
+                let root_di_mut = table::borrow_mut(&mut governance.delegations, root);
+                root_di_mut.current_voting_power = root_di_mut.current_voting_power - amount;
+            } else {
+                user_di.current_voting_power = user_di.current_voting_power - amount;
+            }
         };
 
         coin::take(&mut governance.deposits, amount, ctx)
     }
 
     fun get_delegation_root(
-        delegations: &LinkedTable<address, DelegationInfo>,
+        delegations: &Table<address, DelegationInfo>,
         sender: address
     ): address {
-        let delegated_user = &linked_table::borrow(delegations, sender).delegate_to;
+        let delegated_user = &table::borrow(delegations, sender).delegate_to;
         let root = sender;
         while (option::is_some(delegated_user)) {
             let user = *option::borrow(delegated_user);
             assert!(user != sender, ECircularDelegation);
-            delegated_user = &linked_table::borrow(delegations, user).delegate_to;
+            delegated_user = &table::borrow(delegations, user).delegate_to;
             root = user;
         };
         root
@@ -209,35 +256,39 @@ module crowd9_sc::governance {
     ) {
         let sender = tx_context::sender(ctx);
         let store = &governance.store;
-        assert!(linked_table::contains(store, delegate_to) && linked_table::contains(store, sender), ENoPermission);
+        assert!(table::contains(store, delegate_to) && table::contains(store, sender), ENoPermission);
 
         let delegations = &mut governance.delegations;
-        let user_di = linked_table::borrow(delegations, sender);
+        let user_di = table::borrow(delegations, sender);
         let user_voting_power = user_di.current_voting_power;
         assert!(option::is_none(&user_di.delegate_to), EInvalidAction);
 
         // Add voting power to root
         let root = get_delegation_root(delegations, sender);
-        let root_di_mut = linked_table::borrow_mut(delegations, root);
+        let root_di_mut = table::borrow_mut(delegations, root);
         root_di_mut.current_voting_power = root_di_mut.current_voting_power + user_voting_power;
 
         // Update sender delegation info (voting power & delegate_to)
-        let user_di_mut = linked_table::borrow_mut(delegations, sender);
+        let user_di_mut = table::borrow_mut(delegations, sender);
         user_di_mut.current_voting_power = 0;
         *option::borrow_mut(&mut user_di_mut.delegate_to) = delegate_to;
 
         // Update delegate_to's delegated_by
-        let delegate_to_di_mut = linked_table::borrow_mut(delegations, delegate_to);
+        let delegate_to_di_mut = table::borrow_mut(delegations, delegate_to);
         vector::push_back(&mut delegate_to_di_mut.delegated_by, sender);
     }
 
     public entry fun remove_delegate<X, Y>(governance: &mut Governance<X, Y>, ctx: &mut TxContext) {
         let sender = tx_context::sender(ctx);
+        remove_delegate_internal(governance, sender);
+    }
+
+    fun remove_delegate_internal<X, Y>(governance: &mut Governance<X, Y>, sender: address) {
         let store = &governance.store;
-        assert!(linked_table::contains(store, sender), ENoPermission);
+        assert!(table::contains(store, sender), ENoPermission);
 
         let delegations = &mut governance.delegations;
-        let user_di = linked_table::borrow(delegations, sender);
+        let user_di = table::borrow(delegations, sender);
         let user_voting_power = 0;
         assert!(option::is_some(&user_di.delegate_to), EInvalidAction);
 
@@ -245,23 +296,23 @@ module crowd9_sc::governance {
         let queue = vector::singleton(sender);
         while (!vector::is_empty(&queue)) {
             let current_address = vector::pop_back(&mut queue);
-            user_voting_power = user_voting_power + *linked_table::borrow(store, current_address);
-            let current_address_delegated_by = linked_table::borrow(delegations, current_address).delegated_by;
+            user_voting_power = user_voting_power + *table::borrow(store, current_address);
+            let current_address_delegated_by = table::borrow(delegations, current_address).delegated_by;
             vector::append(&mut queue, current_address_delegated_by);
         };
 
         // Remove voting power from the root
         let root = get_delegation_root(delegations, sender);
-        let root_di_mut = linked_table::borrow_mut(delegations, root);
+        let root_di_mut = table::borrow_mut(delegations, root);
         root_di_mut.current_voting_power = root_di_mut.current_voting_power - user_voting_power;
 
         // Update sender delegation info (voting power & delegate_to)
-        let user_di_mut = linked_table::borrow_mut(delegations, sender);
+        let user_di_mut = table::borrow_mut(delegations, sender);
         user_di_mut.current_voting_power = user_voting_power;
         let delegate_to = option::extract(&mut user_di_mut.delegate_to);
 
         // Update delegate_to's delegated_by
-        let delegate_to_di_mut = linked_table::borrow_mut(delegations, delegate_to);
+        let delegate_to_di_mut = table::borrow_mut(delegations, delegate_to);
         let (_, idx) = vector::index_of(&delegate_to_di_mut.delegated_by, &sender);
         vector::swap_remove<address>(&mut delegate_to_di_mut.delegated_by, idx);
     }
@@ -292,27 +343,27 @@ module crowd9_sc::governance {
         let sender = tx_context::sender(ctx);
         let store = &governance.store;
         assert!(
-            (linked_table::contains(store, sender) && linked_table::borrow(
+            (table::contains(store, sender) && table::borrow(
                 &governance.delegations,
                 sender
             ).current_voting_power >= min_votes_required) || sender == governance.creator,
             ENoPermission
         );
 
-        let snapshot = linked_table::new<address, u64>(ctx);
+        let snapshot = table::new(ctx);
+        let participants = vec_set::into_keys(governance.participants);
         let delegations = &governance.delegations;
-        let current_node = linked_table::front(delegations);
+        // let current_node = linked_table::front(delegations);
 
-        while (option::is_some(current_node)) {
-            let user = *option::borrow(current_node);
-            let user_di = linked_table::borrow(delegations, user);
-
+        while (!vector::is_empty(&participants)) {
+            let user = vector::pop_back(&mut participants);
+            let user_di = table::borrow(delegations, user);
             // Filter users w/o voting power
             if (user_di.current_voting_power > 0) {
-                linked_table::push_back(&mut snapshot, user, user_di.current_voting_power);
+                table::add(&mut snapshot, user, user_di.current_voting_power);
             };
-            current_node = linked_table::next(delegations, user);
         };
+        vector::destroy_empty(participants);
 
         // Might want to reconsider using vec_set so we can handle >1k limit
         let proposal = Proposal {
@@ -347,12 +398,12 @@ module crowd9_sc::governance {
         assert!(proposal.status == SActive, EInvalidAction);
 
         let sender = tx_context::sender(ctx);
-        assert!(linked_table::contains(&proposal.snapshot, sender), ENoPermission);
+        assert!(table::contains(&proposal.snapshot, sender), ENoPermission);
 
         let current_vote_choice: u8 = get_address_vote_choice(proposal, &sender);
         assert!(current_vote_choice != vote_choice, EDuplicatedVotes);
 
-        let voting_power = linked_table::borrow(&proposal.snapshot, sender);
+        let voting_power = table::borrow(&proposal.snapshot, sender);
 
         // Update previous vote
         if (current_vote_choice == VFor) {

@@ -69,6 +69,11 @@ module crowd9_sc::campaign {
         coin_type: String
     }
 
+    struct ContributeEvent has copy, drop {
+        campaign_id: ID,
+        contributor: address,
+    }
+
     fun get_duration(duration_type: u8): u64 {
         assert!(duration_type < 3, EInvalidDuration);
         if (duration_type == 0) {
@@ -189,6 +194,11 @@ module crowd9_sc::campaign {
         }else {
             linked_table::push_back(contributions, contributor, tokens_purchased);
         };
+
+        event::emit(ContributeEvent {
+            campaign_id: object::id(campaign),
+            contributor
+        })
     }
 
     public entry fun cancel<X>(campaign: &mut Campaign<X>, owner_cap: &OwnerCap, ctx: &mut TxContext) {
@@ -269,9 +279,9 @@ module crowd9_sc::campaign {
 
         let decimals = coin::get_decimals<Y>(&metadata);
         let scale_factor = math::pow(10, decimals);
-        let governance_tokens_to_mint = balance::value(&campaign.balance);
+
         let governance_token = coin::into_balance(
-            coin::mint<Y>(&mut treasury_cap, governance_tokens_to_mint * scale_factor, ctx)
+            coin::mint<Y>(&mut treasury_cap, campaign.tokens_to_mint * scale_factor, ctx)
         );
 
         let treasury_tokens = balance::withdraw_all(&mut campaign.balance);
@@ -281,7 +291,8 @@ module crowd9_sc::campaign {
             treasury_tokens,
             governance_token,
             contributions,
-            campaign.tokens_to_mint,
+            scale_factor,
+            campaign.tokens_to_mint * scale_factor,
             clock,
             ctx
         );
