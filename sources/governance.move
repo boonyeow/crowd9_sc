@@ -445,18 +445,16 @@ module crowd9_sc::governance {
     /// TODO: To check
     public fun end_proposal<X, Y>(
         governance: &mut Governance<X, Y>,
-        proposal: &mut Proposal,
+        proposal_id: ID,
         clock: &Clock,
     ) {
         // TODO: uncomment later
+        let proposal = table::borrow_mut(&mut governance.proposal_data, proposal_id);
         assert!(
-            proposal.status == SActive || clock::timestamp_ms(clock) > proposal.start_timestamp + PROPOSAL_DURATION,
+            proposal.status == SActive && clock::timestamp_ms(clock) > proposal.start_timestamp + PROPOSAL_DURATION,
             EInvalidAction
         );
 
-        assert!(proposal.status == SActive, EInvalidAction);
-
-        let proposal_id = object::id(proposal);
         let quorum = lib::mul_div_u64(governance.total_supply, QUORUM_THRESHOLD, THRESHOLD_DENOMINATOR);
         let approval = lib::mul_div_u64(governance.total_supply, APPROVAL_THRESHOLD, THRESHOLD_DENOMINATOR);
         let total_votes = governance.total_supply;
@@ -475,12 +473,12 @@ module crowd9_sc::governance {
     // w/o time dependency, to remove after testing
     public fun end_proposal_force<X, Y>(
         governance: &mut Governance<X, Y>,
-        proposal: &mut Proposal,
+        proposal_id: ID,
         _clock: &Clock,
     ) {
+        let proposal = table::borrow_mut(&mut governance.proposal_data, proposal_id);
         assert!(proposal.status == SActive, EInvalidAction);
 
-        let proposal_id = object::id(proposal);
         let quorum = lib::mul_div_u64(governance.total_supply, QUORUM_THRESHOLD, THRESHOLD_DENOMINATOR);
         let approval = lib::mul_div_u64(governance.total_supply, APPROVAL_THRESHOLD, THRESHOLD_DENOMINATOR);
         let total_votes = governance.total_supply;
@@ -496,10 +494,10 @@ module crowd9_sc::governance {
         }
     }
 
-    public fun execute_proposal<X, Y>(governance: &mut Governance<X, Y>, proposal: &mut Proposal, clock: &Clock) {
+    public fun execute_proposal<X, Y>(governance: &mut Governance<X, Y>, proposal_id: ID, clock: &Clock) {
+        let proposal = table::borrow_mut(&mut governance.proposal_data, proposal_id);
         assert!(proposal.status == SSuccess, EInvalidAction);
-
-        let proposal_id = object::id(proposal);
+        proposal.status = SExecuted;
         if (proposal.type == PAdjustment) {
             let tap_info = &mut governance.tap_info;
             let proposed_tap_rate = *option::borrow(&proposal.proposed_tap_rate);
@@ -524,22 +522,21 @@ module crowd9_sc::governance {
                         vector::length(&governance.execution_sequence) - 1
                     );
                 }
-            }
+            };
         } else {
             governance.ongoing = false;
         };
 
-        proposal.status = SExecuted;
         let (_, proposal_index) = vector::index_of(&governance.execution_sequence, &proposal_id);
         vector::remove(&mut governance.execution_sequence, proposal_index);
     }
 
-    public fun cancel_proposal<X, Y>(governance: &mut Governance<X, Y>, proposal: &mut Proposal, ctx: &mut TxContext) {
+    public fun cancel_proposal<X, Y>(governance: &mut Governance<X, Y>, proposal_id: ID, ctx: &mut TxContext) {
+        let proposal = table::borrow_mut(&mut governance.proposal_data, proposal_id);
         assert!(proposal.status == SActive || proposal.status == SSuccess, EInvalidAction);
         let sender = tx_context::sender(ctx);
         assert!(proposal.proposer == sender, ENoPermission);
 
-        let proposal_id = object::id(proposal);
         proposal.status = SAborted;
         let (_, proposal_index) = vector::index_of(&governance.execution_sequence, &proposal_id);
         vector::remove(&mut governance.execution_sequence, proposal_index);
