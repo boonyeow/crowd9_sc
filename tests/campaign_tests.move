@@ -2,6 +2,7 @@
 module crowd9_sc::campaign_tests {
     use crowd9_sc::campaign::{Self, Campaign, OwnerCap, verify_campaign_status};
     use crowd9_sc::coin_manager::{Self, AdminCap, CoinBag};
+    use crowd9_sc::governance::{Self};
     use sui::test_scenario::{Self as ts, Scenario};
     use sui::sui::SUI;
     use std::option::{Self};
@@ -10,13 +11,14 @@ module crowd9_sc::campaign_tests {
     use sui::transfer::{Self};
     use sui::clock::{Self, Clock};
     use std::vector::{Self};
+    use sui::table;
+    use sui::math;
+    use crowd9_sc::governance::Governance;
 
-    const ADMIN: address = @0x000A;
     const ALICE: address = @0xAAAA;
     const BOB: address = @0xBBBB;
     const CAROL: address = @0xCCCC;
-
-    // TODO: Test the clock for contribute function
+    const DAVID: address = @0xDDDD;
 
     /// Status Codes
     const SInactive: u8 = 0;
@@ -35,6 +37,8 @@ module crowd9_sc::campaign_tests {
     const INITIAL_STARTING_COINS: u64 = 100000;
 
     const MS_IN_A_DAY: u64 = 1000 * 60 * 60 * 24;
+
+    struct CAMPAIGN_TESTS has drop {}
 
     fun mint_coins_to_user<CoinType>(scenario: &mut Scenario, amount_to_mint: u64, user: address) {
         ts::next_tx(scenario, user);
@@ -82,6 +86,7 @@ module crowd9_sc::campaign_tests {
         mint_coins_to_user<SUI>(scenario, INITIAL_STARTING_COINS, ALICE);
         mint_coins_to_user<SUI>(scenario, INITIAL_STARTING_COINS, BOB);
         mint_coins_to_user<SUI>(scenario, INITIAL_STARTING_COINS, CAROL);
+        mint_coins_to_user<SUI>(scenario, INITIAL_STARTING_COINS, DAVID);
 
         ts::next_tx(scenario, user);
         let clock = clock::create_for_testing(ts::ctx(scenario));
@@ -96,8 +101,8 @@ module crowd9_sc::campaign_tests {
     }
 
     fun init_coin_manager(scenario: &mut Scenario, user: address): (AdminCap, CoinBag) {
-        ts::next_tx(scenario, user);
         coin_manager::init_cm(ts::ctx(scenario));
+        ts::next_tx(scenario, user);
 
         let admin_cap = ts::take_shared<AdminCap>(scenario);
         let coin_bag = ts::take_shared<CoinBag>(scenario);
@@ -445,38 +450,6 @@ module crowd9_sc::campaign_tests {
         end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
     }
 
-    // not sure if even possible to call?
-    // #[test]
-    // fun contribute_to_campaign_unrequested_coin() {
-    //     let scenario_val = ts::begin(ALICE);
-    //     let scenario = &mut scenario_val;
-    //     let (campaign, owner_cap, clock) = init_scenario<SUI>(
-    //         scenario,
-    //         ALICE,
-    //         INITIAL_PRICE_PER_TOKEN,
-    //         INITIAL_FUNDING_GOAL
-    //     );
-    //
-    //     ts::next_tx(scenario, ALICE);
-    //     {
-    //         campaign::start(&mut campaign, &owner_cap, &clock);
-    //     };
-    //
-    //     let contribution_amount = 99;
-    //     ts::next_tx(scenario, BOB);
-    //     {
-    //         let user = tx_context::sender(ts::ctx(scenario));
-    //         campaign::contribute(
-    //             take_coins<BTC>(scenario, user, contribution_amount),
-    //             &mut campaign,
-    //             &clock,
-    //             ts::ctx(scenario)
-    //         );
-    //     };
-    //
-    //     end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
-    // }
-
     #[test, expected_failure(abort_code = crowd9_sc::campaign::ECampaignEnded)]
     fun contribute_to_campaign_after_campaign_duration() {
         let scenario_val = ts::begin(ALICE);
@@ -722,7 +695,6 @@ module crowd9_sc::campaign_tests {
             assert!(get_coins_balance<SUI>(scenario, CAROL) == INITIAL_STARTING_COINS - contribution_amount, 1);
         };
 
-        // campaign::transition_to_governance()
         end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
     }
 
@@ -857,6 +829,116 @@ module crowd9_sc::campaign_tests {
             campaign::end(&mut campaign, &clock, ts::ctx(scenario));
         };
 
+        end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
+    }
+
+    // transition to governance
+    #[test]
+    fun transition_to_governance() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (campaign, owner_cap, clock) = init_campaign<SUI>(
+            scenario,
+            ALICE,
+            INITIAL_PRICE_PER_TOKEN,
+            INITIAL_FUNDING_GOAL
+        );
+
+        ts::next_tx(scenario, ALICE);
+        {
+            campaign::start(&mut campaign, &owner_cap, &clock);
+        };
+
+        let decimals = 9;
+        let scale_factor = math::pow(10, decimals);
+        let contribution_amount = 15000;
+        let total_contributed = 0;
+        let store_values = table::new<address, u64>(ts::ctx(scenario));
+        ts::next_tx(scenario, BOB);
+        {
+            let user = tx_context::sender(ts::ctx(scenario));
+            campaign::contribute(
+                take_coins<SUI>(scenario, user, contribution_amount),
+                &mut campaign,
+                &clock,
+                ts::ctx(scenario)
+            );
+            total_contributed = contribution_amount + total_contributed;
+            table::add(&mut store_values, user, scale_factor * contribution_amount / INITIAL_PRICE_PER_TOKEN);
+        };
+
+        ts::next_tx(scenario, CAROL);
+        {
+            let user = tx_context::sender(ts::ctx(scenario));
+            campaign::contribute(
+                take_coins<SUI>(scenario, user, contribution_amount),
+                &mut campaign,
+                &clock,
+                ts::ctx(scenario)
+            );
+            total_contributed = contribution_amount + total_contributed;
+            table::add(&mut store_values, user, scale_factor * contribution_amount / INITIAL_PRICE_PER_TOKEN);
+        };
+
+        ts::next_tx(scenario, DAVID);
+        {
+            let user = tx_context::sender(ts::ctx(scenario));
+            campaign::contribute(
+                take_coins<SUI>(scenario, user, contribution_amount),
+                &mut campaign,
+                &clock,
+                ts::ctx(scenario)
+            );
+            total_contributed = contribution_amount + total_contributed;
+            table::add(&mut store_values, user, scale_factor * contribution_amount / INITIAL_PRICE_PER_TOKEN);
+        };
+
+        let (admin_cap, coin_bag) = init_coin_manager(scenario, ALICE);
+        {
+            let (treasury_cap, coin_metadata) = coin::create_currency(
+                CAMPAIGN_TESTS {},
+                decimals,
+                b"TEST",
+                b"TEST COIN",
+                b"Test coin",
+                option::none(),
+                ts::ctx(scenario)
+            );
+            coin_manager::add<CAMPAIGN_TESTS>(&mut coin_bag, treasury_cap, coin_metadata);
+        };
+
+        clock::increment_for_testing(&mut clock, MS_IN_A_DAY * 14 + 1);
+        ts::next_tx(scenario, ALICE);
+        {
+            campaign::end(&mut campaign, &clock, ts::ctx(scenario));
+            campaign::transition_to_governance<SUI, CAMPAIGN_TESTS>(
+                &mut coin_bag,
+                &mut campaign,
+                &clock,
+                ts::ctx(scenario)
+            );
+            assert!(verify_campaign_status(&campaign, SCompleted), 1);
+        };
+
+        ts::next_tx(scenario, ALICE);
+        let governance = ts::take_shared<Governance<SUI, CAMPAIGN_TESTS>>(scenario);
+        {
+            assert!(
+                governance::assert_governance_details(
+                    &governance,
+                    ALICE,
+                    total_contributed,
+                    total_contributed / INITIAL_PRICE_PER_TOKEN * scale_factor,
+                    store_values,
+                    total_contributed * scale_factor / INITIAL_PRICE_PER_TOKEN,
+                    vector[BOB, CAROL, DAVID]
+                ), 1
+            );
+        };
+
+        ts::return_shared(governance);
+        ts::return_shared(admin_cap);
+        ts::return_shared(coin_bag);
         end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
     }
 }

@@ -17,10 +17,10 @@ module crowd9_sc::campaign {
 
     /// ======= Constants =======
     /// Error Codes
-    const EIncorrectAmount: u64 = 0000;
+    // const EIncorrectAmount: u64 = 0000;
     const EUnauthorizedUser: u64 = 0001;
     const EDisallowedAction: u64 = 0002;
-    const ENoContributionFound: u64 = 0004;
+    // const ENoContributionFound: u64 = 0004;
     const ECampaignEnded: u64 = 0005;
     const EInvalidDuration: u64 = 0006;
     const EInvalidCoinAmount: u64 = 0007;
@@ -51,6 +51,7 @@ module crowd9_sc::campaign {
         start_timestamp: u64,
         duration: u64,
         balance: Balance<X>,
+        // Contributions maps address to tokens purchased
         contributions: Option<LinkedTable<address, u64>>,
         tokens_to_mint: u64,
         owner_cap_id: ID,
@@ -121,11 +122,6 @@ module crowd9_sc::campaign {
 
         transfer::share_object(campaign);
         transfer::transfer(owner_cap, creator);
-    }
-
-    #[test_only]
-    public entry fun update_campaign_status<X>(campaign: &mut Campaign<X>, status: u8) {
-        campaign.status = status
     }
 
     public entry fun update<X>(
@@ -292,7 +288,6 @@ module crowd9_sc::campaign {
             governance_token,
             contributions,
             scale_factor,
-            campaign.tokens_to_mint * scale_factor,
             clock,
             ctx
         );
@@ -309,6 +304,12 @@ module crowd9_sc::campaign {
             status: campaign.status,
             coin_type: type_name::into_string(type_name::get<Y>())
         });
+    }
+
+
+    #[test_only]
+    public entry fun update_campaign_status<X>(campaign: &mut Campaign<X>, status: u8) {
+        campaign.status = status
     }
 
     #[test_only]
