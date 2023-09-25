@@ -1,10 +1,11 @@
+#[allow(unused_const)]
 module crowd9_sc::governance {
     use sui::tx_context::TxContext;
     use sui::object::{Self, UID, ID};
     use sui::table::{Self, Table};
     use sui::vec_set::{Self, VecSet};
     use sui::coin::{Self, Coin};
-    use sui::balance::{Balance};
+    use sui::balance::{Self, Balance};
     use sui::tx_context::{Self};
     use sui::linked_table::{Self, LinkedTable};
     use sui::clock::{Self, Clock};
@@ -61,6 +62,7 @@ module crowd9_sc::governance {
         delegations: Table<address, DelegationInfo>,
         proposal_data: Table<ID, Proposal>,
         tap_info: TapInfo,
+        // Total Supply of Y
         total_supply: u64,
         ongoing: bool,
         refund_amount: u64,
@@ -117,14 +119,14 @@ module crowd9_sc::governance {
         deposits: Balance<Y>,
         contributions: LinkedTable<address, u64>,
         scale_factor: u64,
-        total_supply: u64,
         clock: &Clock,
         ctx: &mut TxContext
     ): Governance<X, Y> {
         let delegations: Table<address, DelegationInfo> = table::new(ctx);
         let store: Table<address, u64> = table::new(ctx);
+        let participants: VecSet<address> = vec_set::empty();
+        let total_supply = balance::value(&deposits);
 
-        let participants = vec_set::empty();
         while (!linked_table::is_empty(&contributions)) {
             let (user, no_of_tokens) = linked_table::pop_back(&mut contributions);
             let current_voting_power = no_of_tokens * scale_factor;
@@ -430,7 +432,7 @@ module crowd9_sc::governance {
         }
     }
 
-    public fun get_address_vote_choice(proposal: &Proposal, voter: &address): u8 {
+    fun get_address_vote_choice(proposal: &Proposal, voter: &address): u8 {
         if (vec_set::contains(&proposal.for.holders, voter)) {
             return VFor
         } else if (vec_set::contains(&proposal.against.holders, voter)) {
@@ -563,5 +565,32 @@ module crowd9_sc::governance {
         tap_info.last_withdrawn_timestamp = current_timestamp;
 
         coin::take(&mut governance.treasury, max_withdrawable, ctx)
+    }
+
+    #[test_only]
+    public fun assert_governance_details<X, Y>(
+        governance: &Governance<X, Y>,
+        creator: address,
+        treasury_amount: u64,
+        deposit_amount: u64,
+        store_values: Table<address, u64>,
+        total_supply: u64,
+        participants: vector<address>
+    ): bool {
+        assert!(vec_set::size(&governance.participants) == vector::length(&participants), 1);
+        while (!vector::is_empty(&participants)) {
+            let participant = vector::pop_back(&mut participants);
+            assert!(
+                table::contains(&governance.store, participant) &&
+                    table::borrow(&governance.store, participant) == table::borrow(&store_values, participant),
+                1
+            );
+        };
+        table::drop(store_values);
+        assert!(governance.creator == creator, 1);
+        assert!(balance::value(&governance.treasury) == treasury_amount, 1);
+        assert!(balance::value(&governance.deposits) == deposit_amount, 1);
+        assert!(governance.total_supply == total_supply, 1);
+        return true
     }
 }

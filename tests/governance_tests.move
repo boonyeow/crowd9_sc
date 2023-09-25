@@ -1,113 +1,198 @@
-// #[test_only]
-// module crowd9_sc::governance_tests {
-//     use std::debug;
-//     use sui::sui::SUI;
-//     use std::vector;
-//     use sui::object::{Self, UID};
-//     use sui::balance::{Self, Balance};
-//     use sui::test_scenario::{Self as ts};
-//     use sui::coin::{Self};
-//     use sui::transfer::{Self};
-//     use crowd9_sc::lib::{Self};
-//
-//     #[test]
-//     fun test_append() {
-//         let vector1 = vector[@123, @456, @789];
-//         let vector2 = vector[@111, @222, @333];
-//
-//         vector::append(&mut vector1, vector2);
-//         // debug::print(&vector1);
-//         // debug::print(&vector2);
-//
-//         let scenario_val = ts::begin(@0xABC);
-//         let scenario = &mut scenario_val;
-//         let ctx = ts::ctx(scenario);
-//         let v3 = vector[object::new(ctx), object::new(ctx), object::new(ctx)];
-//         let v4 = vector[object::new(ctx), object::new(ctx), object::new(ctx)];
-//         vector::append(&mut v3, v4);
-//         // debug::print(&v3);
-//
-//         while (!vector::is_empty(&v3)) {
-//             let id = vector::pop_back(&mut v3);
-//             object::delete(id);
-//             // debug::print(&1);
-//         };
-//         vector::destroy_empty(v3);
-//         ts::end(scenario_val);
-//     }
-//
-//
-//     struct Vault has key, store {
-//         id: UID,
-//         balance: Balance<SUI>,
-//         tap_rate: u64,
-//         last_withdrawn_timestamp: u64,
-//         refund_amount: u64,
-//         total_supply_value: u64,
-//         frozen_balance: Balance<ABC>,
-//     }
-//
-//     struct ABC has drop {}
-//
-//     #[test]
-//     fun division_test() {
-//         let sender = @0xB;
-//         let scenario = ts::begin(sender);
-//         let scenario_val = &mut scenario;
-//
-//         ts::next_tx(scenario_val, sender);
-//         // 1000000000 mist = 1 sui
-//         let scale_factor = 1000000000;
-//         let vault = Vault {
-//             id: object::new(ts::ctx(scenario_val)),
-//             balance: balance::create_for_testing<SUI>(103 * scale_factor),
-//             tap_rate: 10000000,
-//             last_withdrawn_timestamp: 0,
-//             refund_amount: 103 * scale_factor, // amount left in sui
-//             total_supply_value: 1000 * scale_factor,
-//             frozen_balance: balance::zero<ABC>()
-//         };
-//
-//         ts::next_tx(scenario_val, sender);
-//         let coins = coin::mint_for_testing<ABC>(1000000000, ts::ctx(scenario_val));
-//         let coin_value = coin::value(&coins);
-//         let _share1 = coin_value / vault.total_supply_value * balance::value(&vault.balance);
-//         let _share2 = (((coin_value as u256) * (balance::value(
-//             &vault.balance
-//         ) as u256) / (vault.total_supply_value as u256)) as u64);
-//
-//         let _share3 = lib::mul_div_u64(coin_value, balance::value(&vault.balance), vault.total_supply_value);
-//         // debug::print(&share3);
-//         // debug::print(&share1);
-//         // debug::print(&share2);
-//
-//         // coin_value / total_supply * refund_amount
-//         // coin_value * refund_amount / total_supply
-//         // proportion = coin_value / total_supply
-//         // debug::print(&lib::mul_div_u64(1, 600, 10000)); // share = coin_value / total_supply * balance
-//         // debug::print(&lib::mul_div_u64(10, 600, 10000));
-//         // debug::print(&lib::mul_div_u64(50, 600, 10000));
-//         // debug::print(&lib::mul_div_u64(100, 600, 10000));
-//         // debug::print(&lib::mul_div_u64(1000, 600, 10000));
-//
-//         coin::burn_for_testing(coins);
-//         transfer::public_freeze_object(vault);
-//         ts::end(scenario);
-//     }
-//
-//     #[test]
-//     fun vector_test() {
-//         let vec_test = vector[0, 1, 2, 3, 4];
-//         debug::print(&vec_test);
-//
-//         let last_item = *vector::borrow(&vec_test, vector::length(&vec_test) - 1);
-//         debug::print(&last_item);
-//
-//         while (last_item != 0) {
-//             let _ = vector::pop_back(&mut vec_test);
-//             last_item = *vector::borrow(&vec_test, vector::length(&vec_test) - 1);
-//             debug::print(&last_item)
-//         };
-//         debug::print(&vec_test)
-//     }
-// }
+#[allow(unused_const, unused_function, unused_use)]
+#[test_only]
+module crowd9_sc::governance_tests {
+    use crowd9_sc::governance::{Self, Governance, DelegationInfo};
+    use crowd9_sc::campaign::{Self, Campaign, OwnerCap, verify_campaign_status};
+    use crowd9_sc::coin_manager::{Self, AdminCap, CoinBag};
+    use sui::test_scenario::{Self as ts, Scenario, take_shared, take_from_address};
+    use sui::sui::SUI;
+    use std::option::{Self};
+    use sui::tx_context;
+    use sui::coin::{Self, Coin, balance, CoinMetadata};
+    use sui::transfer::{Self};
+    use sui::clock::{Self, Clock};
+    use std::vector::{Self};
+    use sui::linked_table;
+    use sui::linked_table::LinkedTable;
+    use sui::balance;
+    use sui::table;
+    use sui::math;
+
+    const ALICE: address = @0xAAAA;
+    const BOB: address = @0xBBBB;
+    const CAROL: address = @0xCCCC;
+    const DAVID: address = @0xDDDD;
+
+    const VAgainst: u8 = 0;
+    const VFor: u8 = 1;
+    const VAbstain: u8 = 2;
+    const VNoVote: u8 = 3;
+
+    const SActive: u8 = 0;
+    const SInactive: u8 = 1;
+    const SSuccess: u8 = 2;
+    const SFailure: u8 = 3;
+    const SAborted: u8 = 4;
+    const SExecuted: u8 = 5;
+
+    const PRefund: u8 = 0;
+    const PAdjustment: u8 = 1;
+
+    const EDuplicatedVotes: u64 = 001;
+    const EUnauthorizedUser: u64 = 002;
+    const EInvalidAction: u64 = 003;
+    const ENonExistingAction: u64 = 004;
+    const EUnxpectedError: u64 = 005;
+    const ERepeatedDelegation: u64 = 006;
+    const EInvalidDelegatee: u64 = 007;
+    const ENoPermission: u64 = 008;
+    const EInsufficientBalance: u64 = 008;
+    const ECircularDelegation: u64 = 009;
+    const EInvalidVoteChoice: u64 = 010;
+    const EInvalidParameter: u64 = 011;
+
+    // 3 days
+    const PROPOSAL_DURATION: u64 = 259200 * 1000;
+    // 0.5% of total votes to create proposal
+    const PROPOSAL_CREATE_THRESHOLD: u64 = 5;
+    // 5% of total votes for proposal to be considered valid
+    const QUORUM_THRESHOLD: u64 = 50;
+    // 66.7% for proposal to be approved
+    const APPROVAL_THRESHOLD: u64 = 667;
+    const THRESHOLD_DENOMINATOR: u64 = 1000;
+
+    struct TEST_COIN has drop {}
+
+    fun init_governance<X, Y>(scenario: &mut Scenario, user: address): (Governance<X, Y>, Clock) {
+        ts::next_tx(scenario, user);
+        let contributed_amount = 20000 + 25000 + 30000;
+        let contributions: LinkedTable<address, u64> = linked_table::new(ts::ctx(scenario));
+        linked_table::push_back(&mut contributions, BOB, 20000);
+        linked_table::push_back(&mut contributions, CAROL, 25000);
+        linked_table::push_back(&mut contributions, DAVID, 30000);
+        let scale_factor = 1;
+
+        let clock = clock::create_for_testing(ts::ctx(scenario));
+        let governance = governance::create_governance(
+            user,
+            balance::create_for_testing<SUI>(contributed_amount),
+            balance::create_for_testing<TEST_COIN>(contributed_amount),
+            contributions,
+            scale_factor,
+            &clock,
+            ts::ctx(scenario)
+        );
+
+        clock::share_for_testing(clock);
+        transfer::public_share_object(governance);
+
+
+        ts::next_tx(scenario, ALICE);
+        let governance = take_shared<Governance<X, Y>>(scenario);
+        let clock = ts::take_shared<Clock>(scenario);
+        (governance, clock)
+    }
+
+    fun end_scenario<X, Y>(governance: Governance<X, Y>, clock: Clock, scenario_val: Scenario) {
+        ts::return_shared(governance);
+        ts::return_shared(clock);
+        ts::end(scenario_val);
+    }
+
+    // Withdraw Coin
+    #[test]
+    fun withdraw_coin_partial_balance() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        ts::next_tx(scenario, BOB);
+        {};
+
+        end_scenario(governance, clock, scenario_val);
+    }
+
+    #[test]
+    fun withdraw_coin_full_balance() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun withdraw_coin_invalid_user() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun withdraw_coin_insufficient_balance() {}
+
+    // Deposit Coin
+    #[test]
+    fun deposit_coin() {}
+
+    // Delegate voting power to user
+    #[test]
+    fun delegate_to_user() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ECircularDelegation)]
+    fun delegate_invalid_circular() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun delegate_invalid_sender_has_no_deposit() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
+    fun delegate_invalid_sender_already_delegated() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
+    fun delegate_invalid_delegate_to_has_no_deposit() {}
+
+    // Remove delegated voting power
+    #[test]
+    fun remove_delegate_from_user() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun remove_delegate_sender_has_no_deposit() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
+    fun remove_delegate_sender_has_not_delegated() {}
+
+    // Create a proposal
+    #[test]
+    fun create_proposal() {}
+
+    #[test]
+    fun create_proposal_governance_creator() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
+    fun create_proposal_governance_inactive() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidParameter)]
+    fun create_proposal_invalid_proposal_type() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
+    fun create_proposal_invalid_tap_rate() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun create_proposal_sender_has_no_deposit() {}
+
+    // Vote on a proposal
+    #[test]
+    fun vote_proposal() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidVoteChoice)]
+    fun vote_proposal_invalid_vote() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
+    fun vote_proposal_not_active() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun vote_proposal_sender_not_in_snapshot() {}
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EDuplicatedVotes)]
+    fun vote_proposal_sender_casting_same_vote() {}
+
+    // End a proposal
+
+    // Execute a proposal
+
+    // Cancel a proposal
+
+    // Claim refund
+
+    // Withdraw funds (project creator)
+}
