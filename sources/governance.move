@@ -266,14 +266,18 @@ module crowd9_sc::governance {
         assert!(option::is_none(&user_di.delegate_to), EInvalidAction);
 
         // Add voting power to root
-        let root = get_delegation_root(delegations, sender);
+        let root = get_delegation_root(delegations, delegate_to);
         let root_di_mut = table::borrow_mut(delegations, root);
         root_di_mut.current_voting_power = root_di_mut.current_voting_power + user_voting_power;
 
         // Update sender delegation info (voting power & delegate_to)
         let user_di_mut = table::borrow_mut(delegations, sender);
         user_di_mut.current_voting_power = 0;
-        *option::borrow_mut(&mut user_di_mut.delegate_to) = delegate_to;
+        if (option::is_some(&user_di_mut.delegate_to)) {
+            *option::borrow_mut(&mut user_di_mut.delegate_to) = delegate_to;
+        } else {
+            option::fill(&mut user_di_mut.delegate_to, delegate_to);
+        };
 
         // Update delegate_to's delegated_by
         let delegate_to_di_mut = table::borrow_mut(delegations, delegate_to);
@@ -560,11 +564,34 @@ module crowd9_sc::governance {
         let tap_info = &mut governance.tap_info;
         let max_withdrawable = tap_info.last_max_withdrawable + ((current_timestamp - tap_info.last_withdrawn_timestamp) * tap_info.tap_rate);
 
+        assert!(max_withdrawable > 0, EInvalidAction);
+
         // Update tap_info
         tap_info.last_max_withdrawable = 0;
         tap_info.last_withdrawn_timestamp = current_timestamp;
 
-        coin::take(&mut governance.treasury, max_withdrawable, ctx)
+        let total_balance_value = balance::value(&governance.treasury);
+        if (max_withdrawable > total_balance_value) {
+            // withdraw everything
+            coin::take(&mut governance.treasury, total_balance_value, ctx)
+        } else {
+            coin::take(&mut governance.treasury, max_withdrawable, ctx)
+        }
+    }
+
+    #[test_only]
+    public fun get_delegations<X, Y>(governance: &Governance<X, Y>): &Table<address, DelegationInfo> {
+        &governance.delegations
+    }
+
+    #[test_only]
+    public fun get_delegation_info(di: &DelegationInfo): (u64, Option<address>, vector<address>) {
+        (di.current_voting_power, di.delegate_to, di.delegated_by)
+    }
+
+    #[test_only]
+    public fun set_tap_rate<X, Y>(goverance: &mut Governance<X, Y>, tap_rate: u64) {
+        goverance.tap_info.tap_rate = tap_rate;
     }
 
     #[test_only]

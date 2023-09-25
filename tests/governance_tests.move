@@ -61,15 +61,20 @@ module crowd9_sc::governance_tests {
     const APPROVAL_THRESHOLD: u64 = 667;
     const THRESHOLD_DENOMINATOR: u64 = 1000;
 
+    // user contribution
+    const BOB_CONTRIBUTION: u64 = 20000;
+    const CAROL_CONTRIBUTION: u64 = 25000;
+    const DAVID_CONTRIBUTION: u64 = 30000;
+
     struct TEST_COIN has drop {}
 
     fun init_governance<X, Y>(scenario: &mut Scenario, user: address): (Governance<X, Y>, Clock) {
         ts::next_tx(scenario, user);
-        let contributed_amount = 20000 + 25000 + 30000;
+        let contributed_amount = BOB_CONTRIBUTION + BOB_CONTRIBUTION + DAVID_CONTRIBUTION;
         let contributions: LinkedTable<address, u64> = linked_table::new(ts::ctx(scenario));
-        linked_table::push_back(&mut contributions, BOB, 20000);
-        linked_table::push_back(&mut contributions, CAROL, 25000);
-        linked_table::push_back(&mut contributions, DAVID, 30000);
+        linked_table::push_back(&mut contributions, BOB, BOB_CONTRIBUTION);
+        linked_table::push_back(&mut contributions, CAROL, CAROL_CONTRIBUTION);
+        linked_table::push_back(&mut contributions, DAVID, DAVID_CONTRIBUTION);
         let scale_factor = 1;
 
         let clock = clock::create_for_testing(ts::ctx(scenario));
@@ -127,7 +132,46 @@ module crowd9_sc::governance_tests {
 
     // Delegate voting power to user
     #[test]
-    fun delegate_to_user() {}
+    fun delegate_to_user() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Before delegating
+        {
+            let delegations = governance::get_delegations(&governance);
+            let (current_voting_power, delegate_to, delegated_by) = governance::get_delegation_info(
+                table::borrow(delegations, BOB)
+            );
+            assert!(current_voting_power == BOB_CONTRIBUTION, 0);
+            assert!(option::is_none(&delegate_to), 1);
+            assert!(vector::is_empty(&delegated_by), 2);
+        };
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+
+        // After delegating
+        ts::next_tx(scenario, BOB);
+        {
+            let delegations = governance::get_delegations(&governance);
+            let bob_di = table::borrow(delegations, BOB);
+            let (current_voting_power, delegate_to, delegated_by) = governance::get_delegation_info(bob_di);
+            assert!(current_voting_power == 0, 0);
+            assert!(*option::borrow(&delegate_to) == CAROL, 1);
+            assert!(vector::is_empty(&delegated_by), 1);
+
+            let carol_di = table::borrow(delegations, CAROL);
+            let (current_voting_power, delegate_to, delegated_by) = governance::get_delegation_info(carol_di);
+            assert!(current_voting_power == BOB_CONTRIBUTION + CAROL_CONTRIBUTION, 0);
+            assert!(option::is_none(&delegate_to), 1);
+            assert!(vector::contains(&delegated_by, &BOB), 2);
+        };
+
+
+        end_scenario(governance, clock, scenario_val)
+    }
 
     #[test, expected_failure(abort_code = crowd9_sc::governance::ECircularDelegation)]
     fun delegate_invalid_circular() {}
@@ -195,4 +239,19 @@ module crowd9_sc::governance_tests {
     // Claim refund
 
     // Withdraw funds (project creator)
+    #[test]
+    fun withdraw_funds_success() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        governance::set_tap_rate(&mut governance, 100);
+        clock::increment_for_testing(&mut clock, 1);
+
+        let coins = governance::withdraw_funds(&mut governance, &clock, ts::ctx(scenario));
+        assert!(coin::value(&coins) == 100, 0);
+
+        coin::burn_for_testing(coins);
+        end_scenario(governance, clock, scenario_val);
+    }
 }
