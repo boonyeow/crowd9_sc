@@ -51,6 +51,9 @@ module crowd9_sc::governance {
     const APPROVAL_THRESHOLD: u64 = 667;
     const THRESHOLD_DENOMINATOR: u64 = 1000;
 
+    // 1K SUI
+    const MAX_TAP_RATE: u64 = 100000000000;
+
     // X = raised coin type
     // Y = governance coin type
     struct Governance<phantom X, phantom Y> has key, store {
@@ -336,6 +339,7 @@ module crowd9_sc::governance {
         assert!(type == PAdjustment || type == PRefund, EInvalidParameter);
         if (type == PAdjustment) {
             assert!(option::is_some(&proposed_tap_rate), EInvalidParameter);
+            assert!(*option::borrow(&proposed_tap_rate) < MAX_TAP_RATE, EInvalidParameter);
         } else {
             assert!(governance.tap_info.tap_rate == 0, EInvalidAction);
         };
