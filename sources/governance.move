@@ -613,7 +613,11 @@ module crowd9_sc::governance {
     }
 
     #[test_only]
-    public fun check_user_voting_power<X, Y>(governance: &Governance<X, Y>, user: address, voting_power: u64): bool {
+    public fun check_user_voting_power_governance<X, Y>(
+        governance: &Governance<X, Y>,
+        user: address,
+        voting_power: u64
+    ): bool {
         let delegations = &governance.delegations;
         let user_di = table::borrow(delegations, user);
         user_di.current_voting_power == voting_power
@@ -637,7 +641,7 @@ module crowd9_sc::governance {
     }
 
     #[test_only]
-    public fun check_user_in_delegate_by<X, Y>(
+    public fun check_if_user_in_delegate_by<X, Y>(
         governance: &Governance<X, Y>,
         user: address,
         delegate_by_address: address
@@ -645,6 +649,36 @@ module crowd9_sc::governance {
         let delegations = &governance.delegations;
         let user_di = table::borrow(delegations, user);
         vector::contains(&user_di.delegated_by, &delegate_by_address)
+    }
+
+    #[test_only]
+    public fun get_proposal_id_by_index<X, Y>(
+        governance: &Governance<X, Y>,
+        index: u64
+    ): ID {
+        *vector::borrow(&governance.execution_sequence, index)
+    }
+
+    #[test_only]
+    public fun check_user_voting_power_proposal<X, Y>(
+        governance: &Governance<X, Y>,
+        proposal_id: ID,
+        user: address,
+        voting_power: u64
+    ): bool {
+        let proposal = table::borrow(&governance.proposal_data, proposal_id);
+        let user_voting_power = *table::borrow(&proposal.snapshot, user);
+        user_voting_power == voting_power
+    }
+
+    #[test_only]
+    public fun get_user_voting_power_proposal<X, Y>(
+        governance: &Governance<X, Y>,
+        proposal_id: ID,
+        user: address,
+    ): u64 {
+        let proposal = table::borrow(&governance.proposal_data, proposal_id);
+        *table::borrow(&proposal.snapshot, user)
     }
 
     #[test_only]
@@ -672,5 +706,31 @@ module crowd9_sc::governance {
         assert!(balance::value(&governance.deposits) == deposit_amount, 1);
         assert!(governance.total_supply == total_supply, 1);
         return true
+    }
+
+    #[test_only]
+    public fun assert_proposal_details<X, Y>(
+        governance: &Governance<X, Y>,
+        proposal_id: ID,
+        name: vector<u8>,
+        description: vector<u8>,
+        proposer: address,
+        type: u8,
+        status: u8,
+        proposed_tap_rate: Option<u64>,
+    ): bool {
+        let proposal = table::borrow(&governance.proposal_data, proposal_id);
+        let tap_rate = proposal.proposed_tap_rate;
+        if (option::is_some(&tap_rate) && option::is_some(&proposed_tap_rate)) {
+            assert!(option::destroy_some(tap_rate) == option::destroy_some(proposed_tap_rate), 1);
+        }else if (!(option::is_none(&tap_rate) && option::is_none(&proposed_tap_rate))) {
+            // IF both options is not something or nothing, it is definitely not the same.
+            return false
+        };
+        return proposal.name == name &&
+            proposal.description == description &&
+            proposal.proposer == proposer &&
+            proposal.type == type &&
+            proposal.status == status
     }
 }

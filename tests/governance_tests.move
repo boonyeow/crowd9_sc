@@ -244,10 +244,10 @@ module crowd9_sc::governance_tests {
 
         // Before delegating
         {
-            assert!(governance::check_user_voting_power(&governance, BOB, BOB_CONTRIBUTION), 0);
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, BOB_CONTRIBUTION), 0);
             assert!(governance::check_user_delegate_to(&governance, BOB, option::none<address>()), 1);
-            assert!(governance::check_user_voting_power(&governance, CAROL, CAROL_CONTRIBUTION), 0);
-            assert!(!governance::check_user_in_delegate_by(&governance, CAROL, BOB), 1)
+            assert!(governance::check_user_voting_power_governance(&governance, CAROL, CAROL_CONTRIBUTION), 0);
+            assert!(!governance::check_if_user_in_delegate_by(&governance, CAROL, BOB), 1)
         };
 
         // Delegate
@@ -257,11 +257,18 @@ module crowd9_sc::governance_tests {
         // After delegating
         ts::next_tx(scenario, BOB);
         {
-            assert!(governance::check_user_voting_power(&governance, BOB, 0), 0);
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 0);
             assert!(governance::check_user_delegate_to(&governance, BOB, option::some(CAROL)), 1);
-            assert!(governance::check_user_voting_power(&governance, CAROL, BOB_CONTRIBUTION + CAROL_CONTRIBUTION), 0);
+            assert!(
+                governance::check_user_voting_power_governance(
+                    &governance,
+                    CAROL,
+                    BOB_CONTRIBUTION + CAROL_CONTRIBUTION
+                ),
+                0
+            );
             assert!(governance::check_user_delegate_to(&governance, CAROL, option::none<address>()), 1);
-            assert!(governance::check_user_in_delegate_by(&governance, CAROL, BOB), 2);
+            assert!(governance::check_if_user_in_delegate_by(&governance, CAROL, BOB), 2);
         };
 
         end_scenario(governance, clock, scenario_val)
@@ -273,28 +280,20 @@ module crowd9_sc::governance_tests {
         let scenario = &mut scenario_val;
         let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
 
-        let carol_voting_power;
-        let bob_voting_power;
-
         // Delegate
         ts::next_tx(scenario, BOB);
         governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
 
         // After delegating
         ts::next_tx(scenario, BOB);
-        {
-            let delegations = governance::get_delegations(&governance);
-            let bob_di = table::borrow(delegations, BOB);
-            let (current_voting_power, _, _) = governance::get_delegation_info(bob_di);
-            bob_voting_power = current_voting_power;
-
-            let carol_di = table::borrow(delegations, CAROL);
-            let (current_voting_power, _, _) = governance::get_delegation_info(carol_di);
-            carol_voting_power = current_voting_power;
-        };
-
-        assert!(bob_voting_power == 0, 1);
-        assert!(carol_voting_power == BOB_CONTRIBUTION + CAROL_CONTRIBUTION, 1);
+        assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 0);
+        assert!(governance::check_user_delegate_to(&governance, BOB, option::some(CAROL)), 1);
+        assert!(
+            governance::check_user_voting_power_governance(&governance, CAROL, BOB_CONTRIBUTION + CAROL_CONTRIBUTION),
+            0
+        );
+        assert!(governance::check_user_delegate_to(&governance, CAROL, option::none<address>()), 1);
+        assert!(governance::check_if_user_in_delegate_by(&governance, CAROL, BOB), 2);
 
         // Bob withdraw
         ts::next_tx(scenario, BOB);
@@ -304,15 +303,7 @@ module crowd9_sc::governance_tests {
         };
 
         // After delegating
-        ts::next_tx(scenario, CAROL);
-        {
-            let delegations = governance::get_delegations(&governance);
-            let carol_di = table::borrow(delegations, CAROL);
-            let (current_voting_power, _, _) = governance::get_delegation_info(carol_di);
-            carol_voting_power = current_voting_power;
-        };
-
-        assert!(carol_voting_power == CAROL_CONTRIBUTION, 1);
+        assert!(governance::check_user_voting_power_governance(&governance, CAROL, CAROL_CONTRIBUTION), 0);
 
         end_scenario(governance, clock, scenario_val)
     }
@@ -329,11 +320,14 @@ module crowd9_sc::governance_tests {
 
         // After delegating
         ts::next_tx(scenario, BOB);
-        assert!(governance::check_user_voting_power(&governance, BOB, 0), 0);
+        assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 0);
         assert!(governance::check_user_delegate_to(&governance, BOB, option::some(CAROL)), 1);
-        assert!(governance::check_user_voting_power(&governance, CAROL, BOB_CONTRIBUTION + CAROL_CONTRIBUTION), 0);
+        assert!(
+            governance::check_user_voting_power_governance(&governance, CAROL, BOB_CONTRIBUTION + CAROL_CONTRIBUTION),
+            0
+        );
         assert!(governance::check_user_delegate_to(&governance, CAROL, option::none<address>()), 1);
-        assert!(governance::check_user_in_delegate_by(&governance, CAROL, BOB), 2);
+        assert!(governance::check_if_user_in_delegate_by(&governance, CAROL, BOB), 2);
 
         // Bob withdraw
         ts::next_tx(scenario, BOB);
@@ -343,11 +337,11 @@ module crowd9_sc::governance_tests {
         };
 
         ts::next_tx(scenario, CAROL);
-        assert!(governance::check_user_voting_power(&governance, CAROL, CAROL_CONTRIBUTION + 1), 0);
+        assert!(governance::check_user_voting_power_governance(&governance, CAROL, CAROL_CONTRIBUTION + 1), 0);
 
         end_scenario(governance, clock, scenario_val)
     }
-    //
+
     // #[test]
     // fun delegate_delegatee_withdraw() {}
     //
@@ -373,10 +367,144 @@ module crowd9_sc::governance_tests {
     // #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
     // fun remove_delegate_sender_has_not_delegated() {}
     //
-    // // Create a proposal
-    // #[test]
-    // fun create_proposal() {}
-    //
+    // Create a proposal
+    #[test]
+    fun create_proposal_with_delegations() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        ts::next_tx(scenario, ALICE);
+        {
+            let proposal_name = b"Initialise tap rate";
+            let proposal_desc = b"Proposal to start the tap rate";
+            let proposed_tap_rate = option::some<u64>(100);
+            governance::create_proposal(
+                &mut governance,
+                proposal_name,
+                proposal_desc,
+                PAdjustment,
+                proposed_tap_rate,
+                &clock,
+                ts::ctx(scenario)
+            );
+            let proposal_id = governance::get_proposal_id_by_index(&governance, 0);
+            assert!(
+                governance::assert_proposal_details(
+                    &governance,
+                    proposal_id,
+                    proposal_name,
+                    proposal_desc,
+                    ALICE,
+                    PAdjustment,
+                    SActive,
+                    proposed_tap_rate
+                ), 1
+            );
+            assert!(governance::check_user_voting_power_proposal(&governance, proposal_id, BOB, BOB_CONTRIBUTION), 1);
+            assert!(
+                governance::check_user_voting_power_proposal(&governance, proposal_id, CAROL, CAROL_CONTRIBUTION),
+                1
+            );
+            assert!(
+                governance::check_user_voting_power_proposal(&governance, proposal_id, DAVID, DAVID_CONTRIBUTION),
+                1
+            );
+        };
+
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+        };
+
+        ts::next_tx(scenario, ALICE);
+        {
+            let proposal_name = b"Initialise tap rate";
+            let proposal_desc = b"Proposal to start the tap rate";
+            let proposed_tap_rate = option::some<u64>(100);
+            governance::create_proposal(
+                &mut governance,
+                proposal_name,
+                proposal_desc,
+                PAdjustment,
+                proposed_tap_rate,
+                &clock,
+                ts::ctx(scenario)
+            );
+            let proposal_id = governance::get_proposal_id_by_index(&governance, 1);
+            assert!(
+                governance::assert_proposal_details(
+                    &governance,
+                    proposal_id,
+                    proposal_name,
+                    proposal_desc,
+                    ALICE,
+                    PAdjustment,
+                    SActive,
+                    proposed_tap_rate
+                ), 1
+            );
+            assert!(
+                governance::check_user_voting_power_proposal(
+                    &governance,
+                    proposal_id,
+                    CAROL,
+                    BOB_CONTRIBUTION + CAROL_CONTRIBUTION
+                ),
+                1
+            );
+            assert!(
+                governance::check_user_voting_power_proposal(&governance, proposal_id, DAVID, DAVID_CONTRIBUTION),
+                1
+            );
+        };
+
+        ts::next_tx(scenario, DAVID);
+        {
+            governance::delegate(&mut governance, BOB, ts::ctx(scenario));
+        };
+
+        ts::next_tx(scenario, ALICE);
+        {
+            let proposal_name = b"Initialise tap rate";
+            let proposal_desc = b"Proposal to start the tap rate";
+            let proposed_tap_rate = option::some<u64>(100);
+            governance::create_proposal(
+                &mut governance,
+                proposal_name,
+                proposal_desc,
+                PAdjustment,
+                proposed_tap_rate,
+                &clock,
+                ts::ctx(scenario)
+            );
+            let proposal_id = governance::get_proposal_id_by_index(&governance, 2);
+            assert!(
+                governance::assert_proposal_details(
+                    &governance,
+                    proposal_id,
+                    proposal_name,
+                    proposal_desc,
+                    ALICE,
+                    PAdjustment,
+                    SActive,
+                    proposed_tap_rate
+                ), 1
+            );
+            assert!(
+                governance::check_user_voting_power_proposal(
+                    &governance,
+                    proposal_id,
+                    CAROL,
+                    BOB_CONTRIBUTION + CAROL_CONTRIBUTION + DAVID_CONTRIBUTION
+                ),
+                1
+            );
+        };
+
+        end_scenario(governance, clock, scenario_val);
+    }
+
     // #[test]
     // fun create_proposal_governance_creator() {}
     //
