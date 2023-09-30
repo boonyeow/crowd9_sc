@@ -73,6 +73,7 @@ module crowd9_sc::campaign {
     struct ContributeEvent has copy, drop {
         campaign_id: ID,
         contributor: address,
+        amount_raised: u64,
     }
 
     fun get_duration(duration_type: u8): u64 {
@@ -193,7 +194,8 @@ module crowd9_sc::campaign {
 
         event::emit(ContributeEvent {
             campaign_id: object::id(campaign),
-            contributor
+            contributor,
+            amount_raised: balance::value(&campaign.balance)
         })
     }
 
