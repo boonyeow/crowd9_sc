@@ -246,6 +246,8 @@ module crowd9_sc::governance_tests {
         {
             assert!(governance::check_user_voting_power(&governance, BOB, BOB_CONTRIBUTION), 0);
             assert!(governance::check_user_delegate_to(&governance, BOB, option::none<address>()), 1);
+            assert!(governance::check_user_voting_power(&governance, CAROL, CAROL_CONTRIBUTION), 0);
+            assert!(!governance::check_user_in_delegate_by(&governance, CAROL, BOB), 1)
         };
 
         // Delegate
@@ -265,56 +267,87 @@ module crowd9_sc::governance_tests {
         end_scenario(governance, clock, scenario_val)
     }
 
-    // #[test]
-    // fun delegate_then_withdraw() {
-    //     let scenario_val = ts::begin(ALICE);
-    //     let scenario = &mut scenario_val;
-    //     let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
-    //
-    //     let carol_voting_power;
-    //     let bob_voting_power;
-    //
-    //     // Delegate
-    //     ts::next_tx(scenario, BOB);
-    //     governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
-    //
-    //     // After delegating
-    //     ts::next_tx(scenario, BOB);
-    //     {
-    //         let delegations = governance::get_delegations(&governance);
-    //         let bob_di = table::borrow(delegations, BOB);
-    //         let (current_voting_power, _, _) = governance::get_delegation_info(bob_di);
-    //         bob_voting_power = current_voting_power;
-    //
-    //         let carol_di = table::borrow(delegations, CAROL);
-    //         let (current_voting_power, _, _) = governance::get_delegation_info(carol_di);
-    //         carol_voting_power = current_voting_power;
-    //     };
-    //
-    //     assert!(bob_voting_power == 0, 1);
-    //     assert!(carol_voting_power == BOB_CONTRIBUTION + CAROL_CONTRIBUTION, 1);
-    //
-    //     // Bob withdraw
-    //     ts::next_tx(scenario, BOB);
-    //     {
-    //         let withdrawn_coin = governance::withdraw_coin(&mut governance, BOB_CONTRIBUTION, ts::ctx(scenario));
-    //         balance::destroy_for_testing(coin::into_balance(withdrawn_coin));
-    //     };
-    //
-    //     // After delegating
-    //     ts::next_tx(scenario, CAROL);
-    //     {
-    //         let delegations = governance::get_delegations(&governance);
-    //         let carol_di = table::borrow(delegations, CAROL);
-    //         let (current_voting_power, _, _) = governance::get_delegation_info(carol_di);
-    //         carol_voting_power = current_voting_power;
-    //     };
-    //
-    //     assert!(carol_voting_power == CAROL_CONTRIBUTION, 1);
-    //
-    //     end_scenario(governance, clock, scenario_val)
-    // }
+    #[test]
+    fun delegate_then_withdraw_full() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
 
+        let carol_voting_power;
+        let bob_voting_power;
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+
+        // After delegating
+        ts::next_tx(scenario, BOB);
+        {
+            let delegations = governance::get_delegations(&governance);
+            let bob_di = table::borrow(delegations, BOB);
+            let (current_voting_power, _, _) = governance::get_delegation_info(bob_di);
+            bob_voting_power = current_voting_power;
+
+            let carol_di = table::borrow(delegations, CAROL);
+            let (current_voting_power, _, _) = governance::get_delegation_info(carol_di);
+            carol_voting_power = current_voting_power;
+        };
+
+        assert!(bob_voting_power == 0, 1);
+        assert!(carol_voting_power == BOB_CONTRIBUTION + CAROL_CONTRIBUTION, 1);
+
+        // Bob withdraw
+        ts::next_tx(scenario, BOB);
+        {
+            let withdrawn_coin = governance::withdraw_coin(&mut governance, BOB_CONTRIBUTION, ts::ctx(scenario));
+            balance::destroy_for_testing(coin::into_balance(withdrawn_coin));
+        };
+
+        // After delegating
+        ts::next_tx(scenario, CAROL);
+        {
+            let delegations = governance::get_delegations(&governance);
+            let carol_di = table::borrow(delegations, CAROL);
+            let (current_voting_power, _, _) = governance::get_delegation_info(carol_di);
+            carol_voting_power = current_voting_power;
+        };
+
+        assert!(carol_voting_power == CAROL_CONTRIBUTION, 1);
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    #[test]
+    fun delegate_then_withdraw_partial() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+
+        // After delegating
+        ts::next_tx(scenario, BOB);
+        assert!(governance::check_user_voting_power(&governance, BOB, 0), 0);
+        assert!(governance::check_user_delegate_to(&governance, BOB, option::some(CAROL)), 1);
+        assert!(governance::check_user_voting_power(&governance, CAROL, BOB_CONTRIBUTION + CAROL_CONTRIBUTION), 0);
+        assert!(governance::check_user_delegate_to(&governance, CAROL, option::none<address>()), 1);
+        assert!(governance::check_user_in_delegate_by(&governance, CAROL, BOB), 2);
+
+        // Bob withdraw
+        ts::next_tx(scenario, BOB);
+        {
+            let withdrawn_coin = governance::withdraw_coin(&mut governance, BOB_CONTRIBUTION - 1, ts::ctx(scenario));
+            balance::destroy_for_testing(coin::into_balance(withdrawn_coin));
+        };
+
+        ts::next_tx(scenario, CAROL);
+        assert!(governance::check_user_voting_power(&governance, CAROL, CAROL_CONTRIBUTION + 1), 0);
+
+        end_scenario(governance, clock, scenario_val)
+    }
+    //
     // #[test]
     // fun delegate_delegatee_withdraw() {}
     //
