@@ -203,7 +203,7 @@ module crowd9_sc::governance {
 
     public fun withdraw_coin<X, Y>(governance: &mut Governance<X, Y>, amount: u64, ctx: &mut TxContext): Coin<Y> {
         let sender = tx_context::sender(ctx);
-        let store = &mut governance.store;
+        let store = &governance.store;
         assert!(table::contains(store, sender), ENoPermission);
         let existing_quantity = *table::borrow(store, sender);
         assert!(existing_quantity >= amount, EInsufficientBalance);
@@ -213,11 +213,11 @@ module crowd9_sc::governance {
 
         if (existing_quantity == amount) {
             // fella withdraw everything
-            let _ = table::remove(store, sender);
             vec_set::remove(&mut governance.participants, &sender);
             if (option::is_some(&delegated_to)) {
                 remove_delegate_internal(governance, sender);
             };
+            let _ = table::remove(&mut governance.store, sender);
 
             let user_di = table::remove(&mut governance.delegations, sender);
             let delegated_by = user_di.delegated_by;
@@ -226,7 +226,7 @@ module crowd9_sc::governance {
                 remove_delegate_internal(governance, user);
             };
         } else {
-            *table::borrow_mut(store, sender) = existing_quantity - amount;
+            *table::borrow_mut(&mut governance.store, sender) = existing_quantity - amount;
             if (option::is_some(&delegated_to)) {
                 let root = get_delegation_root(&governance.delegations, sender);
                 let root_di_mut = table::borrow_mut(&mut governance.delegations, root);

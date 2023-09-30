@@ -2,3 +2,5 @@
 build/
 /sui/
 /sui.log.*
+.idea/*
+*.iml
