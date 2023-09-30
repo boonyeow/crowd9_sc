@@ -599,6 +599,55 @@ module crowd9_sc::governance {
     }
 
     #[test_only]
+    public fun check_user_balance<X, Y>(governance: &Governance<X, Y>, user: address, balance_amount: u64): bool {
+        if (balance_amount == 0) {
+            return !vec_set::contains(&governance.participants, &user) && !table::contains(&governance.store, user)
+        };
+        let user_store_balance = *table::borrow(&governance.store, user);
+        user_store_balance == balance_amount && vec_set::contains(&governance.participants, &user)
+    }
+
+    #[test_only]
+    public fun check_project_coin_balance<X, Y>(governance: &Governance<X, Y>, balance_amount: u64): bool {
+        balance::value(&governance.deposits) == balance_amount
+    }
+
+    #[test_only]
+    public fun check_user_voting_power<X, Y>(governance: &Governance<X, Y>, user: address, voting_power: u64): bool {
+        let delegations = &governance.delegations;
+        let user_di = table::borrow(delegations, user);
+        user_di.current_voting_power == voting_power
+    }
+
+    #[test_only]
+    public fun check_user_delegate_to<X, Y>(
+        governance: &Governance<X, Y>,
+        user: address,
+        delegate_to: Option<address>
+    ): bool {
+        let delegations = &governance.delegations;
+        let user_di = table::borrow(delegations, user);
+        let user_delegate_to = user_di.delegate_to;
+        if (option::is_none(&delegate_to) && option::is_none(&user_delegate_to)) {
+            return true
+        };
+
+        option::borrow(&delegate_to) ==
+            option::borrow(&user_delegate_to)
+    }
+
+    #[test_only]
+    public fun check_user_in_delegate_by<X, Y>(
+        governance: &Governance<X, Y>,
+        user: address,
+        delegate_by_address: address
+    ): bool {
+        let delegations = &governance.delegations;
+        let user_di = table::borrow(delegations, user);
+        vector::contains(&user_di.delegated_by, &delegate_by_address)
+    }
+
+    #[test_only]
     public fun assert_governance_details<X, Y>(
         governance: &Governance<X, Y>,
         creator: address,
