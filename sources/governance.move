@@ -58,6 +58,7 @@ module crowd9_sc::governance {
     // Y = governance coin type
     struct Governance<phantom X, phantom Y> has key, store {
         id: UID,
+        name: vector<u8>,
         creator: address,
         treasury: Balance<X>,
         deposits: Balance<Y>,
@@ -118,6 +119,7 @@ module crowd9_sc::governance {
 
     public fun create_governance<X, Y>(
         creator: address,
+        name: vector<u8>,
         treasury: Balance<X>,
         deposits: Balance<Y>,
         contributions: LinkedTable<address, u64>,
@@ -147,6 +149,7 @@ module crowd9_sc::governance {
         Governance {
             id: object::new(ctx),
             creator,
+            name,
             treasury,
             deposits,
             store,

@@ -45,6 +45,7 @@ module crowd9_sc::campaign {
         creator: address,
         name: vector<u8>,
         description: vector<u8>,
+        image_url: vector<u8>,
         price_per_token: u64,
         status: u8,
         funding_goal: u64,
@@ -55,6 +56,7 @@ module crowd9_sc::campaign {
         contributions: Option<LinkedTable<address, u64>>,
         tokens_to_mint: u64,
         owner_cap_id: ID,
+        governance_id: Option<ID>
     }
 
     /// ======= Events =======
@@ -90,6 +92,7 @@ module crowd9_sc::campaign {
     public entry fun create_campaign<X>(
         name: vector<u8>,
         description: vector<u8>,
+        image_url: vector<u8>,
         price_per_token: u64,
         funding_goal: u64,
         duration_type: u8,
@@ -98,12 +101,12 @@ module crowd9_sc::campaign {
         let creator = tx_context::sender(ctx);
         let owner_cap = OwnerCap { id: object::new(ctx) };
         let duration: u64 = get_duration(duration_type);
-
         let campaign = Campaign {
             id: object::new(ctx),
             creator,
             name,
             description,
+            image_url,
             price_per_token,
             status: SInactive,
             funding_goal,
@@ -113,6 +116,7 @@ module crowd9_sc::campaign {
             contributions: option::some(linked_table::new(ctx)),
             tokens_to_mint: 0,
             owner_cap_id: object::id(&owner_cap),
+            governance_id: option::none()
         };
 
 
@@ -129,6 +133,7 @@ module crowd9_sc::campaign {
         campaign: &mut Campaign<X>,
         name: Option<vector<u8>>,
         description: Option<vector<u8>>,
+        image_url: Option<vector<u8>>,
         price_per_token: Option<u64>,
         funding_goal: Option<u64>,
         duration_type: Option<u8>,
@@ -143,6 +148,10 @@ module crowd9_sc::campaign {
 
         if (option::is_some(&description)) {
             campaign.description = option::destroy_some(description)
+        };
+
+        if (option::is_some(&image_url)) {
+            campaign.image_url = option::destroy_some(image_url)
         };
 
         if (option::is_some(&price_per_token)) {
@@ -286,6 +295,7 @@ module crowd9_sc::campaign {
 
         let governance = governance::create_governance(
             campaign.creator,
+            campaign.name,
             treasury_tokens,
             governance_token,
             contributions,
@@ -295,6 +305,8 @@ module crowd9_sc::campaign {
         );
 
         let governance_id = object::id(&governance);
+
+        option::fill(&mut campaign.governance_id, governance_id);
 
         transfer::public_share_object(governance);
         transfer::public_freeze_object(treasury_cap);
@@ -319,12 +331,14 @@ module crowd9_sc::campaign {
         campaign: &Campaign<T>,
         name: vector<u8>,
         description: vector<u8>,
+        image_url: vector<u8>,
         price_per_token: u64,
         funding_goal: u64,
         duration_type: u8
     ): bool {
         return campaign.name == name &&
             campaign.description == description &&
+            campaign.image_url == image_url &&
             campaign.price_per_token == price_per_token &&
             campaign.funding_goal == funding_goal &&
             campaign.duration == get_duration(duration_type)

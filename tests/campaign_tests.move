@@ -31,6 +31,7 @@ module crowd9_sc::campaign_tests {
     // Campaign Defaults
     const INITIAL_CAMPAIGN_NAME: vector<u8> = b"The One";
     const INITIAL_CAMPAIGN_DESCRIPTION: vector<u8> = b"Description";
+    const INITIAL_IMAGE_URL: vector<u8> = b"abc.com";
     const INITIAL_CAMPAIGN_DURATION_TYPE: u8 = 1;
     const INITIAL_PRICE_PER_TOKEN: u64 = 10;
     const INITIAL_FUNDING_GOAL: u64 = 10000;
@@ -77,6 +78,7 @@ module crowd9_sc::campaign_tests {
         campaign::create_campaign<T>(
             INITIAL_CAMPAIGN_NAME,
             INITIAL_CAMPAIGN_DESCRIPTION,
+            INITIAL_IMAGE_URL,
             price_per_token,
             funding_goal,
             INITIAL_CAMPAIGN_DURATION_TYPE,
@@ -141,6 +143,7 @@ module crowd9_sc::campaign_tests {
             option::none(),
             option::none(),
             option::none(),
+            option::none(),
             &owner_cap
         );
         end_scenario(ALICE, owner_cap, campaign, scenario_val, clock);
@@ -170,6 +173,7 @@ module crowd9_sc::campaign_tests {
             option::none(),
             option::none(),
             option::none(),
+            option::none(),
             &owner_cap2
         );
         ts::return_to_address(ALICE, owner_cap1);
@@ -195,11 +199,13 @@ module crowd9_sc::campaign_tests {
                 &campaign,
                 INITIAL_CAMPAIGN_NAME,
                 INITIAL_CAMPAIGN_DESCRIPTION,
+                INITIAL_IMAGE_URL,
                 INITIAL_PRICE_PER_TOKEN,
                 INITIAL_FUNDING_GOAL,
                 INITIAL_CAMPAIGN_DURATION_TYPE), 0);
             let new_campaign_name = b"Updated Name";
             let new_campaign_description = b"Updated Description";
+            let new_campaign_image_url = b"xyz.com";
             let new_campaign_price_per_token = 50;
             let new_campaign_funding_goal = 40000;
             let new_campaign_duration_type = 2;
@@ -207,6 +213,7 @@ module crowd9_sc::campaign_tests {
             campaign::update(&mut campaign,
                 option::some(new_campaign_name),
                 option::some(new_campaign_description),
+                option::some(new_campaign_image_url),
                 option::some(new_campaign_price_per_token),
                 option::some(new_campaign_funding_goal),
                 option::some(new_campaign_duration_type),
@@ -217,6 +224,7 @@ module crowd9_sc::campaign_tests {
                     &campaign,
                     new_campaign_name,
                     new_campaign_description,
+                    new_campaign_image_url,
                     new_campaign_price_per_token,
                     new_campaign_funding_goal,
                     new_campaign_duration_type
