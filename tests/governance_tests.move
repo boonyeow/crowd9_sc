@@ -6,7 +6,7 @@ module crowd9_sc::governance_tests {
     use sui::test_scenario::{Self as ts, Scenario};
     use sui::sui::SUI;
     use std::option::{Self};
-    use sui::object::ID;
+    use sui::object::{Self, ID};
     use sui::coin::{Self};
     use sui::transfer::{Self};
     use sui::clock::{Self, Clock};
@@ -74,11 +74,13 @@ module crowd9_sc::governance_tests {
         linked_table::push_back(&mut contributions, CAROL, CAROL_CONTRIBUTION);
         linked_table::push_back(&mut contributions, DAVID, DAVID_CONTRIBUTION);
         let scale_factor = 1;
-
         let clock = clock::create_for_testing(ts::ctx(scenario));
         let governance = governance::create_governance(
             user,
             b"test",
+            b"test_desc",
+            b"abc.com",
+            object::id_from_address(@0xABC),
             balance::create_for_testing<SUI>(INITIAL_CONTRIBUTED_AMOUNT),
             balance::create_for_testing<TEST_COIN>(INITIAL_CONTRIBUTED_AMOUNT),
             contributions,
@@ -112,6 +114,9 @@ module crowd9_sc::governance_tests {
         let governance = governance::create_governance(
             user,
             b"test",
+            b"test_desc",
+            b"abc.com",
+            object::id_from_address(@0xABC),
             balance::create_for_testing<SUI>(INITIAL_CONTRIBUTED_AMOUNT),
             balance::create_for_testing<TEST_COIN>(INITIAL_CONTRIBUTED_AMOUNT),
             contributions,

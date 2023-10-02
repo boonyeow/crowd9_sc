@@ -58,8 +58,10 @@ module crowd9_sc::governance {
     // Y = governance coin type
     struct Governance<phantom X, phantom Y> has key, store {
         id: UID,
-        name: vector<u8>,
         creator: address,
+        name: vector<u8>,
+        description: vector<u8>,
+        image_url: vector<u8>,
         treasury: Balance<X>,
         deposits: Balance<Y>,
         store: Table<address, u64>,
@@ -73,7 +75,8 @@ module crowd9_sc::governance {
         setting: GovernanceSetting,
         participants: VecSet<address>,
         // take note: 1k limit
-        execution_sequence: vector<ID>
+        execution_sequence: vector<ID>,
+        campaign_id: ID
     }
 
     struct TapInfo has store {
@@ -120,6 +123,9 @@ module crowd9_sc::governance {
     public fun create_governance<X, Y>(
         creator: address,
         name: vector<u8>,
+        description: vector<u8>,
+        image_url: vector<u8>,
+        campaign_id: ID,
         treasury: Balance<X>,
         deposits: Balance<Y>,
         contributions: LinkedTable<address, u64>,
@@ -150,6 +156,8 @@ module crowd9_sc::governance {
             id: object::new(ctx),
             creator,
             name,
+            description,
+            image_url,
             treasury,
             deposits,
             store,
@@ -169,7 +177,8 @@ module crowd9_sc::governance {
                 approval_threshold: APPROVAL_THRESHOLD
             },
             participants,
-            execution_sequence: vector::empty()
+            execution_sequence: vector::empty(),
+            campaign_id
         }
     }
 

@@ -293,9 +293,13 @@ module crowd9_sc::campaign {
 
         let treasury_tokens = balance::withdraw_all(&mut campaign.balance);
 
+        let campaign_id = object::id(campaign);
         let governance = governance::create_governance(
             campaign.creator,
             campaign.name,
+            campaign.description,
+            campaign.image_url,
+            campaign_id,
             treasury_tokens,
             governance_token,
             contributions,
