@@ -111,6 +111,7 @@ module crowd9_sc::governance_tests {
         let clock = clock::create_for_testing(ts::ctx(scenario));
         let governance = governance::create_governance(
             user,
+            b"test",
             balance::create_for_testing<SUI>(INITIAL_CONTRIBUTED_AMOUNT),
             balance::create_for_testing<TEST_COIN>(INITIAL_CONTRIBUTED_AMOUNT),
             contributions,
