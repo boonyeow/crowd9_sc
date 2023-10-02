@@ -4,3 +4,5 @@ build/
 /sui.log.*
 .idea/*
 *.iml
+.trace
+.coverage_map.mvcov

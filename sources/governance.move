@@ -509,7 +509,8 @@ module crowd9_sc::governance {
 
     public fun execute_proposal<X, Y>(governance: &mut Governance<X, Y>, proposal_id: ID, clock: &Clock) {
         let proposal = table::borrow_mut(&mut governance.proposal_data, proposal_id);
-        assert!(proposal.status == SSuccess, EInvalidAction);
+        assert!(governance.ongoing && proposal.status == SSuccess, EInvalidAction);
+        assert!(proposal_id == *vector::borrow(&governance.execution_sequence, 0), EInvalidAction);
         proposal.status = SExecuted;
         if (proposal.type == PAdjustment) {
             let tap_info = &mut governance.tap_info;
@@ -538,6 +539,7 @@ module crowd9_sc::governance {
             };
         } else {
             governance.ongoing = false;
+            governance.refund_amount = balance::value(&governance.treasury);
         };
 
         let (_, proposal_index) = vector::index_of(&governance.execution_sequence, &proposal_id);
@@ -597,8 +599,53 @@ module crowd9_sc::governance {
     }
 
     #[test_only]
+    public fun get_proposal_id_by_index<X, Y>(
+        governance: &Governance<X, Y>,
+        index: u64
+    ): ID {
+        *vector::borrow(&governance.execution_sequence, index)
+    }
+
+    #[test_only]
+    public fun get_user_voting_power_proposal<X, Y>(
+        governance: &Governance<X, Y>,
+        proposal_id: ID,
+        user: address,
+    ): u64 {
+        let proposal = table::borrow(&governance.proposal_data, proposal_id);
+        *table::borrow(&proposal.snapshot, user)
+    }
+
+    #[test_only]
     public fun set_tap_rate<X, Y>(goverance: &mut Governance<X, Y>, tap_rate: u64) {
         goverance.tap_info.tap_rate = tap_rate;
+    }
+
+    #[test_only]
+    public fun set_treasury_amount<X, Y>(goverance: &mut Governance<X, Y>, amount: u64) {
+        let balance = balance::withdraw_all(&mut goverance.treasury);
+        balance::destroy_for_testing(balance);
+        balance::join(&mut goverance.treasury, balance::create_for_testing<X>(amount));
+    }
+
+    #[test_only]
+    public fun set_governance_ongoing_status<X, Y>(governance: &mut Governance<X, Y>, status: bool) {
+        governance.ongoing = status;
+    }
+
+    #[test_only]
+    public fun set_proposal_status<X, Y>(governance: &mut Governance<X, Y>, proposal_id: ID, proposal_status: u8) {
+        let proposal = table::borrow_mut(&mut governance.proposal_data, proposal_id);
+        proposal.status = proposal_status
+    }
+
+    #[test_only]
+    public fun simulate_tap_adjustment<X, Y>(governance: &mut Governance<X, Y>, clock: &Clock, tap_rate: u64) {
+        let tap_info = &mut governance.tap_info;
+        let current_timestamp = clock::timestamp_ms(clock);
+        tap_info.last_max_withdrawable = tap_info.last_max_withdrawable + (current_timestamp - tap_info.last_withdrawn_timestamp) * tap_info.tap_rate;
+        tap_info.tap_rate = tap_rate;
+        tap_info.last_withdrawn_timestamp = current_timestamp;
     }
 
     #[test_only]
@@ -608,6 +655,18 @@ module crowd9_sc::governance {
         };
         let user_store_balance = *table::borrow(&governance.store, user);
         user_store_balance == balance_amount && vec_set::contains(&governance.participants, &user)
+    }
+
+    #[test_only]
+    public fun check_user_voting_power_proposal<X, Y>(
+        governance: &Governance<X, Y>,
+        proposal_id: ID,
+        user: address,
+        voting_power: u64
+    ): bool {
+        let proposal = table::borrow(&governance.proposal_data, proposal_id);
+        let user_voting_power = *table::borrow(&proposal.snapshot, user);
+        user_voting_power == voting_power
     }
 
     #[test_only]
@@ -655,33 +714,44 @@ module crowd9_sc::governance {
     }
 
     #[test_only]
-    public fun get_proposal_id_by_index<X, Y>(
-        governance: &Governance<X, Y>,
-        index: u64
-    ): ID {
-        *vector::borrow(&governance.execution_sequence, index)
-    }
-
-    #[test_only]
-    public fun check_user_voting_power_proposal<X, Y>(
+    public fun check_vote_count_and_user_in_proposal_vote<X, Y>(
         governance: &Governance<X, Y>,
         proposal_id: ID,
-        user: address,
-        voting_power: u64
+        vote_type: u8,
+        total_count: u64,
+        user: address
     ): bool {
         let proposal = table::borrow(&governance.proposal_data, proposal_id);
-        let user_voting_power = *table::borrow(&proposal.snapshot, user);
-        user_voting_power == voting_power
+        assert!(vote_type >= 0 && vote_type <= 2, 1);
+        let vote_count = 0;
+        let user_in_voters = false;
+        if (vote_type == VAgainst) {
+            vote_count = proposal.against.count;
+            user_in_voters = vec_set::contains(&proposal.against.holders, &user);
+        }else if (vote_type == VFor) {
+            vote_count = proposal.for.count;
+            user_in_voters = vec_set::contains(&proposal.for.holders, &user);
+        }else if (vote_type == VFor) {
+            vote_count = proposal.abstain.count;
+            user_in_voters = vec_set::contains(&proposal.abstain.holders, &user);
+        };
+        vote_count == total_count && user_in_voters
     }
 
     #[test_only]
-    public fun get_user_voting_power_proposal<X, Y>(
-        governance: &Governance<X, Y>,
-        proposal_id: ID,
-        user: address,
-    ): u64 {
+    public fun check_proposal_status<X, Y>(governance: &Governance<X, Y>, proposal_id: ID, status: u8): bool {
         let proposal = table::borrow(&governance.proposal_data, proposal_id);
-        *table::borrow(&proposal.snapshot, user)
+        proposal.status == status
+    }
+
+    #[test_only]
+    public fun check_tap_rate<X, Y>(governance: &Governance<X, Y>, tap_rate: u64): bool {
+        governance.tap_info.tap_rate == tap_rate
+    }
+
+    #[test_only]
+    public fun check_governance_status<X, Y>(governance: &Governance<X, Y>, status: bool): bool {
+        governance.ongoing == status
     }
 
     #[test_only]
