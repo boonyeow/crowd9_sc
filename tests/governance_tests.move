@@ -14,11 +14,13 @@ module crowd9_sc::governance_tests {
     use sui::linked_table::LinkedTable;
     use sui::balance;
 
+    const ADMIN: address = @0xABCED;
     const ALICE: address = @0xAAAA;
     const BOB: address = @0xBBBB;
     const CAROL: address = @0xCCCC;
     const DAVID: address = @0xDDDD;
     const ERIN: address = @0xEEEE;
+    const FRANK: address = @0xFFFF;
 
     const VAgainst: u8 = 0;
     const VFor: u8 = 1;
@@ -62,6 +64,7 @@ module crowd9_sc::governance_tests {
     const BOB_CONTRIBUTION: u64 = 20000;
     const CAROL_CONTRIBUTION: u64 = 25000;
     const DAVID_CONTRIBUTION: u64 = 30000;
+    const FRANK_CONTRIBUTION: u64 = 50000;
     const INITIAL_CONTRIBUTED_AMOUNT: u64 = 20000 + 25000 + 30000;
     const INITIAL_TAP_RATE: u64 = 1000;
 
@@ -73,6 +76,7 @@ module crowd9_sc::governance_tests {
         linked_table::push_back(&mut contributions, BOB, BOB_CONTRIBUTION);
         linked_table::push_back(&mut contributions, CAROL, CAROL_CONTRIBUTION);
         linked_table::push_back(&mut contributions, DAVID, DAVID_CONTRIBUTION);
+        linked_table::push_back(&mut contributions, FRANK, FRANK_CONTRIBUTION);
         let scale_factor = 1;
         let clock = clock::create_for_testing(ts::ctx(scenario));
         let governance = governance::create_governance(
@@ -108,6 +112,7 @@ module crowd9_sc::governance_tests {
         linked_table::push_back(&mut contributions, BOB, BOB_CONTRIBUTION);
         linked_table::push_back(&mut contributions, CAROL, CAROL_CONTRIBUTION);
         linked_table::push_back(&mut contributions, DAVID, DAVID_CONTRIBUTION);
+        linked_table::push_back(&mut contributions, FRANK, FRANK_CONTRIBUTION);
         let scale_factor = 1;
 
         let clock = clock::create_for_testing(ts::ctx(scenario));
@@ -439,30 +444,348 @@ module crowd9_sc::governance_tests {
         end_scenario(governance, clock, scenario_val)
     }
 
-    // #[test]
-    // fun delegate_delegatee_withdraw() {}
-    //
-    // #[test, expected_failure(abort_code = crowd9_sc::governance::ECircularDelegation)]
-    // fun delegate_invalid_circular() {}
-    //
-    // #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
-    // fun delegate_invalid_sender_has_no_deposit() {}
-    //
-    // #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
-    // fun delegate_invalid_sender_already_delegated() {}
-    //
-    // #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
-    // fun delegate_invalid_delegate_to_has_no_deposit() {}
-    //
-    // // Remove delegated voting power
-    // #[test]
-    // fun remove_delegate_from_user() {}
-    //
-    // #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
-    // fun remove_delegate_sender_has_no_deposit() {}
-    //
-    // #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
-    // fun remove_delegate_sender_has_not_delegated() {}
+    #[test]
+    fun delegate_delegatee_withdraw() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+        };
+
+        // Before withdrawal
+        ts::next_tx(scenario, ALICE);
+        {
+            assert!(
+                governance::check_user_voting_power_governance(
+                    &governance,
+                    CAROL,
+                    CAROL_CONTRIBUTION + BOB_CONTRIBUTION
+                ),
+                1
+            );
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 1);
+        };
+
+        ts::next_tx(scenario, CAROL);
+        {
+            let coin = governance::withdraw_coin(&mut governance, CAROL_CONTRIBUTION, ts::ctx(scenario));
+            coin::burn_for_testing(coin);
+        };
+
+        // After withdrawal
+        ts::next_tx(scenario, ALICE);
+        {
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, BOB_CONTRIBUTION), 1);
+            assert!(governance::check_user_voting_power_governance(&governance, CAROL, 0), 1);
+        };
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    #[test]
+    fun delegate_3_level_middle_delegatee_withdraw() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+        };
+
+        ts::next_tx(scenario, CAROL);
+        {
+            governance::delegate(&mut governance, DAVID, ts::ctx(scenario));
+        };
+
+        // Before withdrawal
+        ts::next_tx(scenario, ALICE);
+        {
+            assert!(
+                governance::check_user_voting_power_governance(
+                    &governance,
+                    DAVID,
+                    BOB_CONTRIBUTION + CAROL_CONTRIBUTION + DAVID_CONTRIBUTION
+                ),
+                1
+            );
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 1);
+        };
+
+        ts::next_tx(scenario, CAROL);
+        {
+            let coin = governance::withdraw_coin(&mut governance, CAROL_CONTRIBUTION, ts::ctx(scenario));
+            coin::burn_for_testing(coin);
+        };
+
+        // After withdrawal
+        ts::next_tx(scenario, ALICE);
+        {
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, BOB_CONTRIBUTION), 1);
+            assert!(governance::check_user_voting_power_governance(&governance, CAROL, 0), 1);
+            assert!(governance::check_user_voting_power_governance(&governance, DAVID, DAVID_CONTRIBUTION), 1);
+        };
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    #[test]
+    fun delegate_3_level_middle_delegatee_redelegate() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+        };
+
+        ts::next_tx(scenario, CAROL);
+        {
+            governance::delegate(&mut governance, DAVID, ts::ctx(scenario));
+        };
+
+        // Before redelegate
+        ts::next_tx(scenario, ALICE);
+        {
+            assert!(
+                governance::check_user_voting_power_governance(
+                    &governance,
+                    DAVID,
+                    BOB_CONTRIBUTION + CAROL_CONTRIBUTION + DAVID_CONTRIBUTION
+                ),
+                1
+            );
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 1);
+        };
+
+        ts::next_tx(scenario, CAROL);
+        {
+            governance::remove_delegate(&mut governance, ts::ctx(scenario));
+        };
+        ts::next_tx(scenario, CAROL);
+        {
+            governance::delegate(&mut governance, FRANK, ts::ctx(scenario));
+        };
+
+        ts::next_tx(scenario, ALICE);
+        {
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 1);
+            assert!(governance::check_user_voting_power_governance(&governance, CAROL, 0), 1);
+            assert!(governance::check_user_voting_power_governance(&governance, DAVID, DAVID_CONTRIBUTION), 1);
+            assert!(
+                governance::check_user_voting_power_governance(
+                    &governance,
+                    FRANK,
+                    BOB_CONTRIBUTION + CAROL_CONTRIBUTION + FRANK_CONTRIBUTION
+                ),
+                1
+            );
+        };
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    #[test]
+    fun delegate_3_level_final_delegatee_withdraw() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+        };
+
+        ts::next_tx(scenario, CAROL);
+        {
+            governance::delegate(&mut governance, DAVID, ts::ctx(scenario));
+        };
+
+        // Before withdrawal
+        ts::next_tx(scenario, ALICE);
+        {
+            assert!(
+                governance::check_user_voting_power_governance(
+                    &governance,
+                    DAVID,
+                    BOB_CONTRIBUTION + CAROL_CONTRIBUTION + DAVID_CONTRIBUTION
+                ),
+                1
+            );
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 1);
+        };
+
+        ts::next_tx(scenario, DAVID);
+        {
+            let coin = governance::withdraw_coin(&mut governance, DAVID_CONTRIBUTION, ts::ctx(scenario));
+            coin::burn_for_testing(coin);
+        };
+
+        // After withdrawal
+        ts::next_tx(scenario, ALICE);
+        {
+            assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 1);
+            assert!(
+                governance::check_user_voting_power_governance(
+                    &governance,
+                    CAROL,
+                    BOB_CONTRIBUTION + CAROL_CONTRIBUTION
+                ),
+                1
+            );
+            assert!(governance::check_user_voting_power_governance(&governance, DAVID, 0), 1);
+        };
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ECircularDelegation)]
+    fun delegate_invalid_circular() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+        };
+
+        // Delegate
+        ts::next_tx(scenario, CAROL);
+        {
+            governance::delegate(&mut governance, BOB, ts::ctx(scenario));
+        };
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun delegate_invalid_sender_has_no_deposit() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, ERIN);
+        {
+            governance::delegate(&mut governance, BOB, ts::ctx(scenario));
+        };
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
+    fun delegate_invalid_sender_already_delegated() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+        };
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, DAVID, ts::ctx(scenario));
+        };
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun delegate_invalid_delegate_to_has_no_deposit() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        {
+            governance::delegate(&mut governance, ERIN, ts::ctx(scenario));
+        };
+
+        end_scenario(governance, clock, scenario_val)
+    }
+
+    // Remove delegated voting power
+    #[test]
+    fun remove_delegate_from_user() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        // Delegate
+        ts::next_tx(scenario, BOB);
+        governance::delegate(&mut governance, CAROL, ts::ctx(scenario));
+        assert!(governance::check_user_voting_power_governance(&governance, BOB, 0), 0);
+        assert!(
+            governance::check_user_voting_power_governance(&governance, CAROL, BOB_CONTRIBUTION + CAROL_CONTRIBUTION),
+            0
+        );
+
+        // Delegate
+        ts::next_tx(scenario, CAROL);
+        governance::delegate(&mut governance, DAVID, ts::ctx(scenario));
+        assert!(governance::check_user_voting_power_governance(&governance, CAROL, 0), 0);
+        assert!(
+            governance::check_user_voting_power_governance(
+                &governance,
+                DAVID,
+                BOB_CONTRIBUTION + CAROL_CONTRIBUTION + DAVID_CONTRIBUTION
+            ),
+            0
+        );
+
+        ts::next_tx(scenario, CAROL);
+        governance::remove_delegate(&mut governance, ts::ctx(scenario));
+        assert!(
+            governance::check_user_voting_power_governance(&governance, CAROL, BOB_CONTRIBUTION + CAROL_CONTRIBUTION),
+            0
+        );
+        assert!(
+            governance::check_user_voting_power_governance(&governance, DAVID, DAVID_CONTRIBUTION),
+            0
+        );
+        end_scenario(governance, clock, scenario_val);
+    }
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::ENoPermission)]
+    fun remove_delegate_sender_has_no_deposit() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        ts::next_tx(scenario, ADMIN);
+        governance::remove_delegate(&mut governance, ts::ctx(scenario));
+
+        end_scenario(governance, clock, scenario_val);
+    }
+
+    #[test, expected_failure(abort_code = crowd9_sc::governance::EInvalidAction)]
+    fun remove_delegate_sender_has_not_delegated() {
+        let scenario_val = ts::begin(ALICE);
+        let scenario = &mut scenario_val;
+        let (governance, clock) = init_governance<SUI, TEST_COIN>(scenario, ALICE);
+
+        ts::next_tx(scenario, BOB);
+        {
+            governance::remove_delegate(&mut governance, ts::ctx(scenario));
+        };
+
+        end_scenario(governance, clock, scenario_val);
+    }
 
     // Create a proposal
     #[test]

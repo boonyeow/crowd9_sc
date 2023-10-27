@@ -195,7 +195,7 @@ module crowd9_sc::governance {
             *table::borrow_mut(store, sender) = existing_quantity + amount;
 
             if (option::is_some(&delegated_to)) {
-                let root = get_delegation_root(&governance.delegations, sender);
+                let root = get_delegation_root(&governance.delegations, sender, ctx);
                 let root_di_mut = table::borrow_mut(&mut governance.delegations, root);
                 root_di_mut.current_voting_power = root_di_mut.current_voting_power + amount;
             } else {
@@ -224,23 +224,24 @@ module crowd9_sc::governance {
         let delegated_to = user_di.delegate_to;
 
         if (existing_quantity == amount) {
+            let user_di = table::borrow(&mut governance.delegations, sender);
+            let delegated_by = *&user_di.delegated_by;
+            while (!vector::is_empty(&delegated_by)) {
+                let user = vector::pop_back(&mut delegated_by);
+                remove_delegate_internal(governance, user, ctx);
+            };
+
             // fella withdraw everything
             vec_set::remove(&mut governance.participants, &sender);
             if (option::is_some(&delegated_to)) {
-                remove_delegate_internal(governance, sender);
+                remove_delegate_internal(governance, sender, ctx);
             };
+            let _ = table::remove(&mut governance.delegations, sender);
             let _ = table::remove(&mut governance.store, sender);
-
-            let user_di = table::remove(&mut governance.delegations, sender);
-            let delegated_by = user_di.delegated_by;
-            while (!vector::is_empty(&delegated_by)) {
-                let user = vector::pop_back(&mut delegated_by);
-                remove_delegate_internal(governance, user);
-            };
         } else {
             *table::borrow_mut(&mut governance.store, sender) = existing_quantity - amount;
             if (option::is_some(&delegated_to)) {
-                let root = get_delegation_root(&governance.delegations, sender);
+                let root = get_delegation_root(&governance.delegations, sender, ctx);
                 let root_di_mut = table::borrow_mut(&mut governance.delegations, root);
                 root_di_mut.current_voting_power = root_di_mut.current_voting_power - amount;
             } else {
@@ -253,16 +254,21 @@ module crowd9_sc::governance {
 
     fun get_delegation_root(
         delegations: &Table<address, DelegationInfo>,
-        sender: address
+        sender: address,
+        ctx: &mut TxContext
     ): address {
         let delegated_user = &table::borrow(delegations, sender).delegate_to;
         let root = sender;
+        let seen = table::new<address, bool>(ctx);
+        table::add(&mut seen, sender, true);
         while (option::is_some(delegated_user)) {
             let user = *option::borrow(delegated_user);
-            assert!(user != sender, ECircularDelegation);
+            assert!(!table::contains(&seen, user), ECircularDelegation);
+            table::add(&mut seen, user, true);
             delegated_user = &table::borrow(delegations, user).delegate_to;
             root = user;
         };
+        table::drop(seen);
         root
     }
 
@@ -280,11 +286,6 @@ module crowd9_sc::governance {
         let user_voting_power = user_di.current_voting_power;
         assert!(option::is_none(&user_di.delegate_to), EInvalidAction);
 
-        // Add voting power to root
-        let root = get_delegation_root(delegations, delegate_to);
-        let root_di_mut = table::borrow_mut(delegations, root);
-        root_di_mut.current_voting_power = root_di_mut.current_voting_power + user_voting_power;
-
         // Update sender delegation info (voting power & delegate_to)
         let user_di_mut = table::borrow_mut(delegations, sender);
         user_di_mut.current_voting_power = 0;
@@ -294,6 +295,11 @@ module crowd9_sc::governance {
             option::fill(&mut user_di_mut.delegate_to, delegate_to);
         };
 
+        // Add voting power to root
+        let root = get_delegation_root(delegations, delegate_to, ctx);
+        let root_di_mut = table::borrow_mut(delegations, root);
+        root_di_mut.current_voting_power = root_di_mut.current_voting_power + user_voting_power;
+
         // Update delegate_to's delegated_by
         let delegate_to_di_mut = table::borrow_mut(delegations, delegate_to);
         vector::push_back(&mut delegate_to_di_mut.delegated_by, sender);
@@ -301,10 +307,10 @@ module crowd9_sc::governance {
 
     public entry fun remove_delegate<X, Y>(governance: &mut Governance<X, Y>, ctx: &mut TxContext) {
         let sender = tx_context::sender(ctx);
-        remove_delegate_internal(governance, sender);
+        remove_delegate_internal(governance, sender, ctx);
     }
 
-    fun remove_delegate_internal<X, Y>(governance: &mut Governance<X, Y>, sender: address) {
+    fun remove_delegate_internal<X, Y>(governance: &mut Governance<X, Y>, sender: address, ctx: &mut TxContext) {
         let store = &governance.store;
         assert!(table::contains(store, sender), ENoPermission);
 
@@ -323,7 +329,7 @@ module crowd9_sc::governance {
         };
 
         // Remove voting power from the root
-        let root = get_delegation_root(delegations, sender);
+        let root = get_delegation_root(delegations, sender, ctx);
         let root_di_mut = table::borrow_mut(delegations, root);
         root_di_mut.current_voting_power = root_di_mut.current_voting_power - user_voting_power;
 
@@ -679,19 +685,22 @@ module crowd9_sc::governance {
     }
 
     #[test_only]
-    public fun check_project_coin_balance<X, Y>(governance: &Governance<X, Y>, balance_amount: u64): bool {
-        balance::value(&governance.deposits) == balance_amount
-    }
-
-    #[test_only]
     public fun check_user_voting_power_governance<X, Y>(
         governance: &Governance<X, Y>,
         user: address,
         voting_power: u64
     ): bool {
         let delegations = &governance.delegations;
+        if (voting_power == 0 && !table::contains(delegations, user)) {
+            return true
+        };
         let user_di = table::borrow(delegations, user);
         user_di.current_voting_power == voting_power
+    }
+
+    #[test_only]
+    public fun check_project_coin_balance<X, Y>(governance: &Governance<X, Y>, balance_amount: u64): bool {
+        balance::value(&governance.deposits) == balance_amount
     }
 
     #[test_only]
